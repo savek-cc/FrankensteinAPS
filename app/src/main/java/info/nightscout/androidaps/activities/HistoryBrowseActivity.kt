@@ -89,8 +89,8 @@ class HistoryBrowseActivity : DaggerAppCompatActivity() {
             loadAll("onClickEnd")
         }
         binding.zoom.setOnClickListener {
-            var hours = rangeToDisplay + 6
-            hours = if (hours > 24) 6 else hours
+            var hours = if (rangeToDisplay == 3) rangeToDisplay + 3 else rangeToDisplay + 6
+            hours = if (hours > 24) 3 else hours
             rxBus.send(EventScale(hours))
         }
         binding.zoom.setOnLongClickListener {
