@@ -13,6 +13,7 @@ import info.nightscout.interfaces.versionChecker.VersionCheckerUtils
 import info.nightscout.plugins.constraints.R
 import info.nightscout.rx.bus.RxBus
 import info.nightscout.rx.logging.AAPSLogger
+import info.nightscout.rx.logging.LTag
 import info.nightscout.shared.interfaces.ResourceHelper
 import info.nightscout.shared.sharedPreferences.SP
 import info.nightscout.shared.utils.DateUtil
@@ -64,18 +65,21 @@ class VersionCheckerPlugin @Inject constructor(
         checkWarning()
         versionCheckerUtils.triggerCheckVersion()
         if (isOldVersion(gracePeriod.veryOld.daysToMillis()))
-            value.set(aapsLogger, false, rh.gs(R.string.very_old_version), this)
+            aapsLogger.debug(LTag.APS, "would have disabled closed loop due to old version")
+            //value.set(aapsLogger, false, rh.gs(R.string.very_old_version), this)
         val endDate = sp.getLong(rh.gs(info.nightscout.core.utils.R.string.key_app_expiration) + "_" + config.VERSION_NAME, 0)
         if (endDate != 0L && dateUtil.now() > endDate)
-            value.set(aapsLogger, false, rh.gs(R.string.application_expired), this)
+            aapsLogger.debug(LTag.APS, "would have disabled closed loop due to expired version")
+            //value.set(aapsLogger, false, rh.gs(R.string.application_expired), this)
         return value
     }
 
-    override fun applyMaxIOBConstraints(maxIob: Constraint<Double>): Constraint<Double> =
+    override fun applyMaxIOBConstraints(maxIob: Constraint<Double>): Constraint<Double> {
         if (isOldVersion(gracePeriod.old.daysToMillis()))
-            maxIob.set(aapsLogger, 0.0, rh.gs(R.string.old_version), this)
-        else
-            maxIob
+            aapsLogger.debug(LTag.APS, "would have set maxIob to 0 in closed loop due to old version")
+            //maxIob.set(aapsLogger, 0.0, rh.gs(R.string.old_version), this)
+        return maxIob
+    }
 
     private fun checkWarning() {
         val now = dateUtil.now()
