@@ -219,6 +219,7 @@ class DetermineBasalAdapterSMBJS internal constructor(private val scriptReader: 
         this.profile.put("enableSMB_always", smbEnabled && sp.getBoolean(R.string.key_enableSMB_always, false) && advancedFiltering)
         this.profile.put("enableSMB_after_carbs", smbEnabled && sp.getBoolean(R.string.key_enableSMB_after_carbs, false) && advancedFiltering)
         this.profile.put("maxSMBBasalMinutes", sp.getInt(R.string.key_smb_max_minutes, SMBDefaults.maxSMBBasalMinutes))
+        this.profile.put("smbPercent", sp.getInt(R.string.key_smb_percent, SMBDefaults.smbPercent));
         this.profile.put("maxUAMSMBBasalMinutes", sp.getInt(R.string.key_uam_smb_max_minutes, SMBDefaults.maxUAMSMBBasalMinutes))
         //set the min SMB amount to be the amount set by the pump.
         this.profile.put("bolus_increment", pumpBolusStep)
