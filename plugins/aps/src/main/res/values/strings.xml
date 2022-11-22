@@ -16,6 +16,7 @@
     <string name="key_enableSMB_after_carbs" translatable="false">enableSMB_after_carbs</string>
     <string name="key_allowSMB_with_high_temptarget" translatable="false">enableSMB_with_high_temptarget</string>
     <string name="key_smb_max_minutes" translatable="false">smbmaxminutes</string>
+    <string name="key_smb_percent" translatable="false">smbpercent</string>
     <string name="key_uam_smb_max_minutes" translatable="false">uamsmbmaxminutes</string>
     <string name="key_carbsReqThreshold" translatable="false">carbsReqThreshold</string>
     <string name="key_openapssmb_max_iob" translatable="false">openapsmb_max_iob</string>
@@ -99,6 +100,7 @@
     <string name="enable_smb_with_high_temp_target">Enable SMB with high temp targets</string>
     <string name="enable_smb_with_high_temp_target_summary">Enable SMB when there is high temp target active (exercise, above 100 mg/dl or 5.5 mmol/l)</string>
     <string name="smb_max_minutes_summary">Max minutes of basal to limit SMB to</string>
+    <string name="smb_percent_summary">Percentage of Insulin Required to give as SMB</string>
     <string name="uam_smb_max_minutes">UAM SMB max minutes</string>
     <string name="uam_smb_max_minutes_summary">Max minutes of basal to limit SMB to for UAM</string>
     <string name="carbs_req_threshold">Minimum Carbs Required For Suggestion</string>

@@ -59,6 +59,7 @@ object SMBDefaults {
     const val SMBInterval = 3 // minimum interval between SMBs, in minutes. (limited between 1 and 10 min)
     const val maxSMBBasalMinutes = 30 // maximum minutes of basal that can be delivered as a single SMB with uncovered COB
     const val maxUAMSMBBasalMinutes = 30 // maximum minutes of basal that can be delivered as a single SMB when IOB exceeds COB
+    const val smbPercent = 50 // percentage of insulin required to be delivered as SMB
 
     // curve:"rapid-acting" // Supported curves: "bilinear", "rapid-acting" (Novolog, Novorapid, Humalog, Apidra) and "ultra-rapid" (Fiasp)
     // useCustomPeakTime:false // allows changing insulinPeakTime

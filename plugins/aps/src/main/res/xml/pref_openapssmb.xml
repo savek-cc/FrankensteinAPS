@@ -100,6 +100,18 @@
             validate:testType="numericRange" />
 
         <info.nightscout.core.validators.ValidatingEditTextPreference
+            android:defaultValue="50"
+            android:digits="0123456789"
+            android:entries="@array/smbPercent"
+            android:entryValues="@array/smbPercent"
+            android:inputType="number"
+            android:key="@string/key_smb_percent"
+            android:title="@string/smb_percent_summary"
+            validate:maxNumber="100"
+            validate:minNumber="10"
+            validate:testType="numericRange" />
+
+        <info.nightscout.core.validators.ValidatingEditTextPreference
             android:defaultValue="30"
             android:dialogMessage="@string/uam_smb_max_minutes"
             android:digits="0123456789"
