@@ -34,6 +34,7 @@ import info.nightscout.pump.combo.ruffyscripter.commands.CancelTbrCommand;
 import info.nightscout.pump.combo.ruffyscripter.commands.Command;
 import info.nightscout.pump.combo.ruffyscripter.commands.CommandException;
 import info.nightscout.pump.combo.ruffyscripter.commands.ConfirmAlertCommand;
+import info.nightscout.pump.combo.ruffyscripter.commands.ExtendedBolusCommand;
 import info.nightscout.pump.combo.ruffyscripter.commands.ReadBasalProfileCommand;
 import info.nightscout.pump.combo.ruffyscripter.commands.ReadHistoryCommand;
 import info.nightscout.pump.combo.ruffyscripter.commands.ReadPumpStateCommand;
@@ -537,6 +538,10 @@ public class RuffyScripter implements RuffyCommands {
 
             if (!activeBasalRate.equals(1)) {
                 state.unsafeUsageDetected = PumpState.UNSUPPORTED_BASAL_RATE_PROFILE;
+            } else if (bolusType != null && bolusType == BolusType.EXTENDED) {
+                state.unsafeUsageDetected = PumpState.EXTENDED_BOLUS_ACTIVE;
+                MenuTime durationMenuTime = ((MenuTime) menu.getAttribute(MenuAttribute.RUNTIME));
+                state.extBolusRemainingDuration = durationMenuTime.getHour() * 60 + durationMenuTime.getMinute();
             } else if (bolusType != null && bolusType != BolusType.NORMAL) {
                 state.unsafeUsageDetected = PumpState.UNSUPPORTED_BOLUS_TYPE;
             } else if (tbrPercentage != null && tbrPercentage != 100) {
@@ -809,6 +814,11 @@ public class RuffyScripter implements RuffyCommands {
         } else {
             aapsLogger.error(LTag.PUMP, "cancelBolus called, but active command is not a bolus:" + activeCmd);
         }
+    }
+
+    @Override
+    public CommandResult deliverExtendedBolus(double amount, int duration) {
+        return runCommand(new ExtendedBolusCommand(amount, duration, aapsLogger));
     }
 
     @Override

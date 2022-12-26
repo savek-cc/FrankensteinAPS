@@ -4,6 +4,8 @@ import androidx.annotation.NonNull;
 
 import org.monkey.d.ruffy.ruffy.driver.display.MenuAttribute;
 import org.monkey.d.ruffy.ruffy.driver.display.MenuType;
+import org.monkey.d.ruffy.ruffy.driver.display.menu.BolusType;
+import org.monkey.d.ruffy.ruffy.driver.display.menu.MenuTime;
 
 import java.util.ArrayList;
 import java.util.Date;
@@ -27,6 +29,11 @@ public class ReadQuickInfoCommand extends BaseCommand {
     @Override
     public void execute() {
         scripter.verifyRootMenuIsDisplayed();
+        BolusType bolusType = (BolusType) scripter.getCurrentMenu().getAttribute(MenuAttribute.BOLUS_TYPE);
+        if (bolusType == BolusType.EXTENDED) {
+            MenuTime durationMenuTime = ((MenuTime) scripter.getCurrentMenu().getAttribute(MenuAttribute.RUNTIME));
+            result.state.extBolusRemainingDuration = durationMenuTime.getHour() * 60 + durationMenuTime.getMinute();
+        }
         // navigate to reservoir menu
         scripter.pressCheckKey();
         scripter.waitForMenuToBeLeft(MenuType.MAIN_MENU);

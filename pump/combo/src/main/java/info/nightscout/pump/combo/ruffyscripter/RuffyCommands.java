@@ -11,6 +11,8 @@ public interface RuffyCommands {
     /** Requests cancellation of an active bolus if possible. */
     void cancelBolus();
 
+    CommandResult deliverExtendedBolus(double amount, int durationInMinutes);
+
     CommandResult setTbr(int percent, int duration);
 
     CommandResult cancelTbr();

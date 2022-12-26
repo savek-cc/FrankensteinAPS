@@ -5,11 +5,13 @@ import java.util.Date;
 public class Bolus extends HistoryRecord {
     public final double amount;
     public final boolean isValid;
+    public final int duration;
 
-    public Bolus(long timestamp, double amount, boolean isValid) {
+    public Bolus(long timestamp, double amount, boolean isValid, int duration) {
         super(timestamp);
         this.amount = amount;
         this.isValid = isValid;
+        this.duration = duration;
     }
 
 
@@ -22,6 +24,7 @@ public class Bolus extends HistoryRecord {
 
         if (timestamp != bolus.timestamp) return false;
         if (isValid != bolus.isValid) return false;
+        if (duration != bolus.duration) return false;
         return Math.abs(bolus.amount - amount) <= 0.01;
     }
 
@@ -40,7 +43,7 @@ public class Bolus extends HistoryRecord {
     public String toString() {
         return "Bolus{" +
                 "timestamp=" + timestamp + " (" + new Date(timestamp) + ")" +
-                ", amount=" + amount +
+                ", amount=" + amount + ", duration=" + duration +
                 '}';
     }
 }
