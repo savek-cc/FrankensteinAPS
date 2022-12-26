@@ -21,6 +21,7 @@ import javax.inject.Singleton;
 
 import dagger.android.HasAndroidInjector;
 import info.nightscout.core.utils.fabric.InstanceId;
+import info.nightscout.interfaces.aps.Loop;
 import info.nightscout.interfaces.constraints.Constraint;
 import info.nightscout.interfaces.constraints.Constraints;
 import info.nightscout.interfaces.notifications.Notification;
@@ -87,6 +88,7 @@ import info.nightscout.shared.utils.T;
  */
 @Singleton
 public class ComboPlugin extends PumpPluginBase implements Pump, Constraints {
+    @Inject info.nightscout.interfaces.aps.Loop loop;
     // collaborators
     private final ProfileFunction profileFunction;
     private final SP sp;
@@ -98,7 +100,6 @@ public class ComboPlugin extends PumpPluginBase implements Pump, Constraints {
     private final UiInteraction uiInteraction;
 
     private final static PumpDescription pumpDescription = new PumpDescription();
-
 
     @NonNull
     private static final ComboPump pump = new ComboPump();
@@ -435,10 +436,32 @@ public class ComboPlugin extends PumpPluginBase implements Pump, Constraints {
      */
     private void updateLocalData(CommandResult result) {
         if (result.reservoirLevel != PumpState.UNKNOWN) {
+            if ((pump.reservoirLevel != -1) && (result.reservoirLevel > pump.reservoirLevel)) {
+                getAapsLogger().debug(LTag.PUMP, "Auto-inserting reservoir change therapy event");
+                pumpSync.insertTherapyEventIfNewWithTimestamp(
+                        System.currentTimeMillis(),
+                        DetailedBolusInfo.EventType.INSULIN_CHANGE,
+                        "AAPS reservoir change automatic entry",
+                        null,
+                        PumpType.ACCU_CHEK_COMBO,
+                        serialNumber()
+                );
+            }
             pump.reservoirLevel = result.reservoirLevel;
         }
         if (result.history != null && !result.history.bolusHistory.isEmpty()) {
             pump.lastBolus = result.history.bolusHistory.get(0);
+        }
+        if (result.state.batteryState == 0 && (pump.state.batteryState == PumpState.LOW || pump.state.batteryState == PumpState.EMPTY)) {
+            getAapsLogger().debug(LTag.PUMP, "Auto-inserting battery change therapy event");
+            pumpSync.insertTherapyEventIfNewWithTimestamp(
+                    System.currentTimeMillis(),
+                    DetailedBolusInfo.EventType.PUMP_BATTERY_CHANGE,
+                    "AAPS pumpbattery change automatic entry",
+                    null,
+                    PumpType.ACCU_CHEK_COMBO,
+                    serialNumber()
+            );
         }
         if (result.state.menu != null) {
             pump.state = result.state;
@@ -519,10 +542,13 @@ public class ComboPlugin extends PumpPluginBase implements Pump, Constraints {
                 return new PumpEnactResult(getInjector()).success(false).enacted(false)
                         .comment(R.string.combo_bolus_rejected_due_to_pump_history_change);
             }
-
+            if (stateResult.state.extBolusRemainingDuration > 0) {
+                return new PumpEnactResult(getInjector()).success(false).enacted(false)
+                        .comment(R.string.combo_bolus_rejected_due_running_ext_bolus);
+            }
             Bolus previousBolus = stateResult.history != null && !stateResult.history.bolusHistory.isEmpty()
                     ? stateResult.history.bolusHistory.get(0)
-                    : new Bolus(0, 0, false);
+                    : new Bolus(0, 0, false, 0);
 
             // reject a bolus if one with the exact same size was successfully delivered
             // within the last 1-2 minutes
@@ -784,7 +810,75 @@ public class ComboPlugin extends PumpPluginBase implements Pump, Constraints {
 
     @NonNull @Override
     public PumpEnactResult setExtendedBolus(double insulin, int durationInMinutes) {
-        return OPERATION_NOT_SUPPORTED;
+        getAapsLogger().debug(LTag.PUMP, "setExtendedBolus called");
+        try {
+            pump.activity = getRh().gs(R.string.combo_pump_action_setting_extended_bolus, insulin, durationInMinutes);
+            rxBus.send(new EventComboPumpUpdateGUI());
+
+            // check pump is ready and all pump bolus records are known
+            CommandResult stateResult = runCommand(null, 2, () -> ruffyScripter.readQuickInfo(1));
+            if (!stateResult.success) {
+                return new PumpEnactResult(getInjector()).success(false).enacted(false)
+                        .comment(R.string.combo_error_no_connection_no_bolus_delivered);
+            }
+            if (stateResult.reservoirLevel != -1 && stateResult.reservoirLevel - 0.5 < insulin) {
+                return new PumpEnactResult(getInjector()).success(false).enacted(false)
+                        .comment(R.string.combo_reservoir_level_insufficient_for_bolus);
+            }
+            // the commands above ensured a connection was made, which updated this field
+            if (pumpHistoryChanged) {
+                return new PumpEnactResult(getInjector()).success(false).enacted(false)
+                        .comment(R.string.combo_bolus_rejected_due_to_pump_history_change);
+            }
+            if (stateResult.state.extBolusRemainingDuration > 0) {
+                return new PumpEnactResult(getInjector()).success(false).enacted(false)
+                        .comment(R.string.combo_bolus_rejected_due_running_ext_bolus);
+            }
+            Bolus previousBolus = stateResult.history != null && !stateResult.history.bolusHistory.isEmpty()
+                    ? stateResult.history.bolusHistory.get(0)
+                    : new Bolus(0, 0, false, 0);
+
+            // reject a bolus if one with the exact same size was successfully delivered
+            // within the last 1-2 minutes
+            if (Math.abs(previousBolus.amount - insulin) < 0.01
+                    && previousBolus.timestamp + 60 * 1000 > System.currentTimeMillis()) {
+                getAapsLogger().debug(LTag.PUMP, "Bolus request rejected, same bolus was successfully delivered very recently");
+                return new PumpEnactResult(getInjector()).success(false).enacted(false)
+                        .comment(R.string.bolus_frequency_exceeded);
+            }
+
+            CommandResult extBolusResult = runCommand(null, 0, () -> ruffyScripter.deliverExtendedBolus(insulin, durationInMinutes));
+            if (!extBolusResult.success) {
+                return new PumpEnactResult(getInjector()).success(false).enacted(false)
+                        .comment(R.string.combo_error_no_bolus_delivered);
+            }
+
+            // no error up to here, so add the extended bolus to the database
+            pumpSync.syncExtendedBolusWithPumpId(
+                    extBolusResult.state.pumpTime,
+                    insulin,
+                    durationInMinutes * 60 * 1000,
+                    false,
+                    extBolusResult.state.pumpTime,
+                    PumpType.ACCU_CHEK_COMBO,
+                    serialNumber());
+
+            // full bolus was delivered successfully
+            getAapsLogger().debug(LTag.PUMP,
+                    "new extended bolus started at " + extBolusResult.state.pumpTime + " for " + insulin + " units with a duration of " + durationInMinutes + " minutes.");
+            // suspend loop for the duration of the extended bolus
+            loop.suspendLoop(durationInMinutes);
+
+            incrementBolusCount();
+            return new PumpEnactResult(getInjector())
+                    .success(true)
+                    .enacted(insulin > 0);
+        } finally {
+            pump.activity = null;
+            rxBus.send(new EventComboPumpUpdateGUI());
+            rxBus.send(new EventRefreshOverview("Bolus", false));
+            cancelBolus = false;
+        }
     }
 
     /**
@@ -804,7 +898,7 @@ public class ComboPlugin extends PumpPluginBase implements Pump, Constraints {
             if (!stateResult.success) {
                 return new PumpEnactResult(getInjector()).success(false).enacted(false);
             }
-            if (!stateResult.state.tbrActive) {
+            if ((!stateResult.state.tbrActive) && (stateResult.state.extBolusRemainingDuration <= 0)){
                 return new PumpEnactResult(getInjector()).success(true).enacted(false);
             }
             getAapsLogger().debug(LTag.PUMP, "cancelTempBasal: hard-cancelling TBR since force requested");
@@ -987,7 +1081,7 @@ public class ComboPlugin extends PumpPluginBase implements Pump, Constraints {
             return;
         }
         if (state.unsafeUsageDetected != PumpState.SAFE_USAGE) {
-            // with an extended or multiwavo bolus running it's not (easily) possible
+            // with an extended or multiwave bolus running it's not (easily) possible
             // to infer base basal rate and not supported either. Also don't compare
             // if set basal rate profile is != -1.
             return;
@@ -1059,6 +1153,12 @@ public class ComboPlugin extends PumpPluginBase implements Pump, Constraints {
         long lastViolation = 0;
         if (commandResult.state.unsafeUsageDetected == PumpState.UNSUPPORTED_BOLUS_TYPE) {
             lastViolation = System.currentTimeMillis();
+        } else if (commandResult.state.unsafeUsageDetected == PumpState.EXTENDED_BOLUS_ACTIVE) {
+            if (!loop.isSuspended()) {
+                getAapsLogger().debug(LTag.PUMP, "Suspending Loop due to currently active extended bolus with remaining runtime of " + commandResult.state.extBolusRemainingDuration);
+                loop.suspendLoop(commandResult.state.extBolusRemainingDuration + 1);
+                rxBus.send(new EventRefreshOverview("pump", true));
+            }
         } else if (commandResult.history != null) {
             for (Bolus bolus : commandResult.history.bolusHistory) {
                 if (!bolus.isValid && bolus.timestamp > lastViolation) {
@@ -1067,7 +1167,7 @@ public class ComboPlugin extends PumpPluginBase implements Pump, Constraints {
             }
         }
         if (lastViolation > 0) {
-            lowSuspendOnlyLoopEnforcedUntil = lastViolation + 6 * 60 * 60 * 1000;
+            lowSuspendOnlyLoopEnforcedUntil = lastViolation + 15 * 60 * 1000;
             if (lowSuspendOnlyLoopEnforcedUntil > System.currentTimeMillis() && violationWarningRaisedForBolusAt != lowSuspendOnlyLoopEnforcedUntil) {
                 uiInteraction.addNotificationWithSound(Notification.COMBO_PUMP_ALARM,
                         getRh().gs(R.string.combo_low_suspend_forced_notification),
@@ -1164,15 +1264,29 @@ public class ComboPlugin extends PumpPluginBase implements Pump, Constraints {
     private boolean updateDbFromPumpHistory(@NonNull PumpHistory history) {
         boolean updated = false;
         for (Bolus pumpBolus : history.bolusHistory) {
-            if (pumpSync.syncBolusWithPumpId(
-                    pumpBolus.timestamp,
-                    pumpBolus.amount,
-                    null,
-                    generatePumpBolusId(pumpBolus),
-                    PumpType.ACCU_CHEK_COMBO,
-                    serialNumber()
-            )) {
-                updated = true;
+            if (pumpBolus.duration == 0) {
+                if (pumpSync.syncBolusWithPumpId(
+                        pumpBolus.timestamp,
+                        pumpBolus.amount,
+                        null,
+                        generatePumpBolusId(pumpBolus),
+                        PumpType.ACCU_CHEK_COMBO,
+                        serialNumber()
+                )) {
+                    updated = true;
+                }
+            } else {
+                if (pumpSync.syncExtendedBolusWithPumpId(
+                        pumpBolus.timestamp - pumpBolus.duration * 60 * 1000, // The combo stores the end timestamp of the extended bolus while AAPS has start and duration
+                        pumpBolus.amount,
+                        pumpBolus.duration * 60 * 1000,
+                        false,
+                        pumpBolus.timestamp - pumpBolus.duration * 60 * 1000,
+                        PumpType.ACCU_CHEK_COMBO,
+                        serialNumber()
+                )) {
+                    updated = true;
+                }
             }
         }
         return updated;
@@ -1189,6 +1303,12 @@ public class ComboPlugin extends PumpPluginBase implements Pump, Constraints {
         double bolus = pumpBolus.amount - 0.1;
         int secondsFromBolus = (int) (bolus * 10 * 1000);
         return pumpBolus.timestamp + Math.min(secondsFromBolus, 59 * 1000);
+    }
+
+    long calculateFakeBolusDate(double insulin, long timestamp) {
+        double bolus = insulin - 0.1;
+        int secondsFromBolus = (int) (bolus * 10 * 1000);
+        return timestamp + Math.min(secondsFromBolus, 59 * 1000);
     }
 
     /**

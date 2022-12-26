@@ -16,6 +16,7 @@
     <string name="combo_pump_action_cancelling_tbr">Cancelling TBR</string>
     <string name="combo_pump_action_setting_tbr">Setting TBR (%1$d%% / %2$d min)</string>
     <string name="combo_pump_action_bolusing">Bolusing (%1$.1f U)</string>
+    <string name="combo_pump_action_setting_extended_bolus">Ext Bolus (%1$.1f U, %2$d min)</string>
     <string name="combo_pump_action_refreshing">Refreshing</string>
     <string name="combo_pump_unsupported_operation">Requested operation not supported by pump</string>
     <string name="combo_low_suspend_forced_notification">Unsafe usage: extended or multiwave boluses are active. Loop mode has been set to low-suspend only 6 hours. Only normal boluses are supported in loop mode</string>
@@ -39,6 +40,7 @@
     <string name="combo_invalid_setup">Invalid pump setup, check the docs and verify that the Quick Info menu is named QUICK INFO using the 360 configuration software.</string>
     <string name="combo_actvity_reading_basal_profile">Reading basal profile</string>
     <string name="combo_bolus_rejected_due_to_pump_history_change">The pump history has changed after the bolus calculation was performed. The bolus was not delivered. Please recalculate if a bolus is still needed.</string>
+    <string name="combo_bolus_rejected_due_running_ext_bolus">There is an active extended bolus ongoing. The bolus was not delivered. Please recalculate if a bolus is still needed.</string>
     <string name="combo_error_updating_treatment_record">Bolus successfully delivered, but adding the treatment entry failed. This can happen if two small boluses of the same size are administered within the last two minutes. Please check the pump history and treatment entries and use the Careportal to add missing entries. Make sure not to add any entries for the exact same minute and same amount.</string>
     <string name="combo_high_temp_rejected_due_to_pump_history_changes">Rejecting high temp since calculation didn\'t consider recently changed pump history</string>
     <string name="combo_activity_checking_pump_state">Refreshing pump state</string>

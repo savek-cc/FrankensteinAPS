@@ -310,14 +310,31 @@ class CommandQueueImplementation @Inject constructor(
         if (detailedBolusInfo.bolusType == DetailedBolusInfo.BolusType.SMB) {
             add(CommandSMBBolus(injector, detailedBolusInfo, callback))
         } else {
-            add(CommandBolus(injector, detailedBolusInfo, callback, type, carbsRunnable))
-            if (type == CommandType.BOLUS) { // Bring up bolus progress dialog (start here, so the dialog is shown when the bolus is requested,
-                // not when the Bolus command is starting. The command closes the dialog upon completion).
-                showBolusProgressDialog(detailedBolusInfo)
-                // Notify Wear about upcoming bolus
-                rxBus.send(EventMobileToWear(info.nightscout.rx.weardata.EventData.BolusProgress(percent = 0, status = rh.gs(info.nightscout.core.ui.R.string.goingtodeliver, detailedBolusInfo.insulin))))
+            if (detailedBolusInfo.insulin < 3) {
+                add(CommandBolus(injector, detailedBolusInfo, callback, type, carbsRunnable))
+                if (type == CommandType.BOLUS) { // Bring up bolus progress dialog (start here, so the dialog is shown when the bolus is requested,
+                    // not when the Bolus command is starting. The command closes the dialog upon completion).
+                    showBolusProgressDialog(detailedBolusInfo)
+                    // Notify Wear about upcoming bolus
+                    rxBus.send(
+                        EventMobileToWear(
+                            info.nightscout.rx.weardata.EventData.BolusProgress(
+                                percent = 0,
+                                status = rh.gs(info.nightscout.core.ui.R.string.goingtodeliver, detailedBolusInfo.insulin)
+                            )
+                        )
+                    )
+                }
+            } else {
+                if (detailedBolusInfo.insulin <= 12) {
+                    add(CommandExtendedBolus(injector, detailedBolusInfo.insulin, 15, callback))
+                } else {
+                    add(CommandExtendedBolus(injector, detailedBolusInfo.insulin, 30, callback))
+                }
+                carbsRunnable.run()
             }
         }
+
         notifyAboutNewCommand()
         return true
     }

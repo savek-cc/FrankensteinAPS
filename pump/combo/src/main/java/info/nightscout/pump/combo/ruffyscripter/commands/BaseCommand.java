@@ -61,10 +61,15 @@ public abstract class BaseCommand implements Command {
     protected Bolus readBolusRecord() {
         scripter.verifyMenuIsDisplayed(MenuType.BOLUS_DATA);
         BolusType bolusType = (BolusType) scripter.getCurrentMenu().getAttribute(MenuAttribute.BOLUS_TYPE);
-        boolean isValid = bolusType == BolusType.NORMAL;
+        boolean isValid = (bolusType == BolusType.NORMAL || bolusType == BolusType.EXTENDED);
         Double bolus = (Double) scripter.getCurrentMenu().getAttribute(MenuAttribute.BOLUS);
+        int duration = 0;
+        if (bolusType == BolusType.EXTENDED) {
+            MenuTime durationMenuTime = ((MenuTime) scripter.getCurrentMenu().getAttribute(MenuAttribute.RUNTIME));
+            duration = durationMenuTime.getHour() * 60 + durationMenuTime.getMinute();
+        }
         long recordDate = readRecordDate();
-        return new Bolus(recordDate, bolus, isValid);
+        return new Bolus(recordDate, bolus, isValid, duration);
     }
 
     protected long readRecordDate() {
