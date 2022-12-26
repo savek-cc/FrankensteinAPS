@@ -35,8 +35,8 @@ class TreatmentsActivity : DaggerAppCompatActivity() {
         setContentView(binding.root)
 
         // Use index, TabItems crashes with an id
-        val useFakeTempBasal = activePlugin.activePump.isFakingTempsByExtendedBoluses
-        binding.treatmentsTabs.getTabAt(1)?.view?.visibility = useFakeTempBasal.toVisibility()
+        //val useFakeTempBasal = activePlugin.activePump.isFakingTempsByExtendedBoluses
+        //binding.treatmentsTabs.getTabAt(1)?.view?.visibility = useFakeTempBasal.toVisibility()
 
         setFragment(TreatmentsBolusCarbsFragment())
         setSupportActionBar(binding.toolbar)

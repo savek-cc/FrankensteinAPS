@@ -76,10 +76,12 @@ class SafetyPlugin @Inject constructor(
             }
             value.set(aapsLogger, false, rh.gs(R.string.closed_loop_disabled_on_dev_branch), this)
         }
+        /**
         val pump = activePlugin.activePump
         if (!pump.isFakingTempsByExtendedBoluses && iobCobCalculator.getExtendedBolus(dateUtil.now()) != null) {
             value.set(aapsLogger, false, rh.gs(R.string.closed_loop_disabled_with_eb), this)
         }
+        **/
         return value
     }
 

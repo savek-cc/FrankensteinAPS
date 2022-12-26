@@ -13,6 +13,7 @@
     <string name="combo_pump_action_cancelling_tbr">TBR wird abgebrochen</string>
     <string name="combo_pump_action_setting_tbr">TBR wird gesetzt (%1$d%% / %2$d min)</string>
     <string name="combo_pump_action_bolusing">Bolus (%1$.1f IE) wird abgegeben</string>
+    <string name="combo_pump_action_setting_extended_bolus">Ext Bolus (%1$.1f U, %2$d min)</string>
     <string name="combo_pump_action_refreshing">Status wird aktualisiert</string>
     <string name="combo_pump_unsupported_operation">Diese Aktion wird von der Pumpe nicht unterstützt</string>
     <string name="combo_low_suspend_forced_notification">Unsichere Verwendung: Ein verlängerter oder Multiwave-Bolus ist aktiv. Der Loop wird für die nächsten 6 Stunden kein zusätzliches Insulin abgeben. Nur normale Boli werden vom Loop unterstützt.</string>
@@ -36,6 +37,7 @@
     <string name="combo_invalid_setup">Ungültige Pumpen-Einstellungen. Lies das Wiki und stelle mit der 360° Konfigurations-Software sicher, dass das Quick-Info-Menü \"QUICK INFO\" heißt.</string>
     <string name="combo_actvity_reading_basal_profile">Basalratenprofil wird gelesen</string>
     <string name="combo_bolus_rejected_due_to_pump_history_change">Nach der Berechnung des Bolus hat sich die Pumpenhistorie geändert. Daher wurde kein Bolus abgegeben. Bitte prüfe, ob überhaupt noch ein Bolus benötigt wird.</string>
+    <string name="combo_bolus_rejected_due_running_ext_bolus">Ein extended Bolus ist derzeit aktiv. Daher wurde kein Bolus abgegeben. Bitte prüfe, ob überhaupt noch ein Bolus benötigt wird.</string>
     <string name="combo_error_updating_treatment_record">Der Bolus wurde erfolgreich abgegeben, aber nicht als Behandlungseintrag gespeichert. Dies kann passieren, wenn zwei kleine, gleich große Boli innerhalb von zwei Minuten verabreicht werden. Bitte überprüfe die Pumpenhistorie und Behandlungseinträge. Verwende das Careportal, um fehlende Einträge hinzuzufügen. Stelle sicher, dass keine Einträge für genau dieselbe Minute und dieselbe Menge hinzugefügt werden.</string>
     <string name="combo_high_temp_rejected_due_to_pump_history_changes">Es wurde keine hohe TBR gesetzt, da nach der Berechnung neue Boluseinträge in der Pumpenhistorik gefunden wurden.</string>
     <string name="combo_activity_checking_pump_state">Status wird aktualisiert</string>

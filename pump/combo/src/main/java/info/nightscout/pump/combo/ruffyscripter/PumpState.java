@@ -19,6 +19,10 @@ public class PumpState {
      * jumps from that to TBR end, skipping 0:00(xx). */
     public int tbrRemainingDuration = -1;
 
+    /** Remaining time of an active extended Bolus. Note that 0:01 is te lowest displayed, the pump
+     * jumps from that to TBR end, skipping 0:00(xx). */
+    public int extBolusRemainingDuration = -1;
+
     /** Warning or error code displayed if a warning or alert alert is active,
      * see {@link PumpWarningCodes}, {@link PumpErrorCodes} */
     public WarningOrErrorCode activeAlert;
@@ -34,6 +38,8 @@ public class PumpState {
     public static final int SAFE_USAGE = 0;
     public static final int UNSUPPORTED_BOLUS_TYPE = 1;
     public static final int UNSUPPORTED_BASAL_RATE_PROFILE = 2;
+    public static final int EXTENDED_BOLUS_ACTIVE = 3;
+
     /** True if use of an extended or multiwave bolus has been detected */
     public int unsafeUsageDetected = SAFE_USAGE;
 
@@ -59,6 +65,11 @@ public class PumpState {
 
     public PumpState tbrRemainingDuration(int tbrRemainingDuration) {
         this.tbrRemainingDuration = tbrRemainingDuration;
+        return this;
+    }
+
+    public PumpState extBolusRemainingDuration(int extBolusRemainingDuration) {
+        this.extBolusRemainingDuration = extBolusRemainingDuration;
         return this;
     }
 
