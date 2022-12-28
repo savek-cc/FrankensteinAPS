@@ -1016,13 +1016,23 @@ class PumpIO(
         runPumpIOCall("deliver standard bolus", Mode.COMMAND) {
 
         val packet = sendPacketWithResponse(
-            ApplicationLayer.createCMDDeliverBolusPacket(bolusAmount),
+            ApplicationLayer.createCMDDeliverBolusPacket(bolusAmount, 0),
             ApplicationLayer.Command.CMD_DELIVER_BOLUS_RESPONSE
         )
 
         return@runPumpIOCall ApplicationLayer.parseCMDDeliverBolusResponsePacket(packet)
     }
 
+    suspend fun deliverCMDExtendedBolus(bolusAmount: Int, durationInMinutes: Int): Boolean =
+        runPumpIOCall("deliver extended bolus", Mode.COMMAND) {
+
+            val packet = sendPacketWithResponse(
+                ApplicationLayer.createCMDDeliverBolusPacket(bolusAmount, durationInMinutes),
+                ApplicationLayer.Command.CMD_DELIVER_BOLUS_RESPONSE
+            )
+
+            return@runPumpIOCall ApplicationLayer.parseCMDDeliverBolusResponsePacket(packet)
+        }
     /**
      * Cancels an ongoing bolus.
      *

@@ -372,6 +372,10 @@ class Pump(
         val bolusAmount: Int,
         val bolusReason: StandardBolusReason
     ) : CommandDescription()
+    class DeliveringExtendedBolusCommandDesc(
+        val bolusAmount: Int,
+        val durationInMinutes: Int
+    ) : CommandDescription()
 
     /**
      * Exception thrown when an idempotent command failed every time.
@@ -1215,6 +1219,9 @@ class Pump(
      *   cancelling an ongoing TBR, which produces a W6 warning) or to fake a
      *   100% TBR by setting 90% / 110% TBRs (see above).
      *   This argument is only used if [percentage] is 100.
+     * @param baseBasalRate currently active base basal rate.
+     *   Used in the extended/multiwave bolus screen to calculate the currently
+     *   active percentage from the absolut value in u/h supplied on that screen.
      * @return The specific outcome if setting the TBR succeeds.
      * @throws IllegalArgumentException if the percentage is not in the 0-500 range,
      *   or if the percentage value is not an integer multiple of 10, or if
@@ -1232,7 +1239,8 @@ class Pump(
         percentage: Int,
         durationInMinutes: Int,
         type: Tbr.Type,
-        force100Percent: Boolean = false
+        force100Percent: Boolean = false,
+        baseBasalRate: Double
     ) = executeCommand(
         pumpMode = PumpIO.Mode.REMOTE_TERMINAL,
         isIdempotent = true,
@@ -1330,14 +1338,14 @@ class Pump(
         when (mainScreenContent) {
             is MainScreenContent.Stopped ->
                 throw IllegalStateException("Combo is in the stopped state after setting TBR")
-
             is MainScreenContent.ExtendedOrMultiwaveBolus -> {
                 val expectedTbrActive = (expectedTbrPercentage != 100)
-                if (expectedTbrActive == mainScreenContent.tbrIsActive) {
+                val actualTbrPercentage = (mainScreenContent.currentBasalRateFactor / baseBasalRate / 10).toInt()
+                if ((expectedTbrActive != mainScreenContent.tbrIsActive) || (expectedTbrPercentage != actualTbrPercentage)) {
                     throw UnexpectedTbrStateException(
                         expectedTbrPercentage = expectedTbrPercentage,
                         expectedTbrDuration = expectedTbrDuration,
-                        actualTbrPercentage = null,
+                        actualTbrPercentage = actualTbrPercentage,
                         actualTbrDuration = null
                     )
                 }
@@ -1667,6 +1675,80 @@ class Pump(
                     }
                 }
             }
+        }
+    }
+
+    suspend fun deliverExtendedBolus(bolusAmount: Int, durationInMinutes: Int) = executeCommand(
+        // Instruct executeCommand() to not set the mode on its own.
+        // This function itself switches manually between the
+        // command and remote terminal modes.
+        pumpMode = null,
+        isIdempotent = false,
+        description = DeliveringExtendedBolusCommandDesc(bolusAmount, durationInMinutes)
+    ) {
+        require((bolusAmount > 0) && (durationInMinutes >= 15)) {
+            "Invalid bolus amount $bolusAmount (${bolusAmount.toStringWithDecimal(1)} IU) or invalid duration $durationInMinutes"
+        }
+
+        // Check that there's enough insulin in the reservoir.
+        statusFlow.value?.let { status ->
+            // Round the bolus amount. The reservoir fill level is given in whole IUs
+            // by the Combo, but the bolus amount is given in 0.1 IU units. By rounding
+            // up, we make sure that the check never misses a case where the bolus
+            // request exceeds the fill level. For example, bolus of 1.3 IU, fill
+            // level 1 IU, if we just divided by 10 to convert the bolus to whole
+            // IU units, we'd truncate the 0.3 IU from the bolus, and the check
+            // would think that it's OK, because the reservoir has 1 IU. If we instead
+            // round up, any fractional IU will be taken into account correctly.
+            val roundedBolusIU = (bolusAmount + 9) / 10
+            logger(LogLevel.DEBUG) {
+                "Checking if there is enough insulin in reservoir; reservoir fill level: " +
+                    "${status.availableUnitsInReservoir} IU; bolus amount: ${bolusAmount.toStringWithDecimal(1)} IU" +
+                    "(rounded: $roundedBolusIU IU)"
+            }
+            if (status.availableUnitsInReservoir < roundedBolusIU)
+                throw InsufficientInsulinAvailableException(bolusAmount, status.availableUnitsInReservoir)
+        } ?: throw IllegalStateException("Cannot deliver bolus without a known pump status")
+
+        // Switch to COMMAND mode for the actual extended bolus delivery
+        pumpIO.switchMode(PumpIO.Mode.COMMAND)
+
+        logger(LogLevel.DEBUG) { "Beginning extended bolus delivery of ${bolusAmount.toStringWithDecimal(1)} IU over $durationInMinutes minutes" }
+        val didDeliver = pumpIO.deliverCMDExtendedBolus(bolusAmount, durationInMinutes)
+        if (!didDeliver) {
+            logger(LogLevel.ERROR) { "Extended Bolus delivery did not commence" }
+            throw BolusNotDeliveredException(bolusAmount)
+        }
+        try {
+            val historyDelta = fetchHistoryDelta()
+
+            if (historyDelta.isEmpty()) {
+                if (didDeliver) {
+                    logger(LogLevel.ERROR) { "Extended Bolus delivery did not actually start" }
+                    throw BolusNotDeliveredException(bolusAmount)
+                }
+            } else {
+                var numExtendedBolusStartedEntries = 0
+                scanHistoryDeltaForBolusToEmit(
+                    historyDelta,
+                ) { entry ->
+                    when (val detail = entry.detail) {
+                        is CMDHistoryEventDetail.ExtendedBolusStarted -> {
+                            numExtendedBolusStartedEntries++
+                        }
+                        else -> Unit
+                    }
+                }
+
+                if (didDeliver) {
+                    if (numExtendedBolusStartedEntries == 0) {
+                        logger(LogLevel.ERROR) { "History delta did not contain an entry about extended bolus start" }
+                        throw BolusNotDeliveredException(bolusAmount)
+                    }
+                }
+            }
+        } finally {
+            Unit
         }
     }
 

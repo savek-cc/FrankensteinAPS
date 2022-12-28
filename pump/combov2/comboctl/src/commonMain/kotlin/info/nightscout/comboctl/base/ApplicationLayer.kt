@@ -1008,11 +1008,12 @@ object ApplicationLayer {
      *        "57" means 5.7 IU.
      * @return The produced packet.
      */
-    fun createCMDDeliverBolusPacket(bolusAmount: Int): Packet {
+    fun createCMDDeliverBolusPacket(bolusAmount: Int, durationInMinutes: Int): Packet {
         // Need to convert the bolus amount to a 32-bit floating point, and
         // then convert that into a form that can be stored below as 4 bytes
         // in little-endian order.
         val bolusAmountAsFloatBits = bolusAmount.toFloat().toBits().toPosLong()
+        val durationInMinutesAsFloatBits = durationInMinutes.toFloat().toBits().toPosLong()
 
         // TODO: It is currently unknown why the 0x55 and 0x59 bytes encode
         // a standard bolus, why the same bolus parameters have to be added
@@ -1020,15 +1021,16 @@ object ApplicationLayer {
         // how to program in multi-wave and extended bolus types.
 
         val payload = byteArrayListOfInts(
-            // This specifies a standard bolus.
-            0x55, 0x59,
+            if (durationInMinutes == 0) 0x55 else 0x65, // 0x55 specifies a standard bolus, 0x65 an extended bolus.
+            if (durationInMinutes == 0) 0x59 else 0x69, // 0x59 specifies a standard bolus, 0x69 an extended bolus.
 
             // Total bolus amount, encoded as a 16-bit little endian integer.
             (bolusAmount and 0x00FF) ushr 0,
             (bolusAmount and 0xFF00) ushr 8,
             // Duration in minutes, encoded as a 16-bit little endian integer.
             // (Only relevant for multi-wave and extended bolus.)
-            0x00, 0x00,
+            (durationInMinutes and 0x00FF) ushr 0,
+            (durationInMinutes and 0xFF00) ushr 8,
             // Immediate bolus amount encoded as a 16-bit little endian integer.
             // (Only relevant for multi-wave bolus.)
             0x00, 0x00,
@@ -1040,7 +1042,10 @@ object ApplicationLayer {
             ((bolusAmountAsFloatBits and 0xFF000000L) ushr 24).toInt(),
             // Duration in minutes, encoded as a 32-bit little endian float point.
             // (Only relevant for multi-wave and extended bolus.)
-            0x00, 0x00, 0x00, 0x00,
+            ((durationInMinutesAsFloatBits and 0x000000FFL) ushr 0).toInt(),
+            ((durationInMinutesAsFloatBits and 0x0000FF00L) ushr 8).toInt(),
+            ((durationInMinutesAsFloatBits and 0x00FF0000L) ushr 16).toInt(),
+            ((durationInMinutesAsFloatBits and 0xFF000000L) ushr 24).toInt(),
             // Immediate bolus amount encoded as a 32-bit little endian float point.
             // (Only relevant for multi-wave bolus.)
             0x00, 0x00, 0x00, 0x00
@@ -1313,13 +1318,13 @@ object ApplicationLayer {
                 }
 
                 // Extended bolus.
-                8, 9 -> {
+                8, 16, 9, 17 -> {
                     // Total bolus amount is recorded in the first 2 detail bytes as a 16-bit little endian integer.
                     val totalBolusAmount = (detailBytes[1].toPosInt() shl 8) or detailBytes[0].toPosInt()
                     // Total duration in minutes is recorded in the next 2 detail bytes as a 16-bit little endian integer.
                     val totalDurationMinutes = (detailBytes[3].toPosInt() shl 8) or detailBytes[2].toPosInt()
-                    // Event type ID 8 = bolus started. ID 9 = bolus ended.
-                    val started = (eventTypeId == 8)
+                    // Event type ID 8, 16 = bolus started. ID 9, 17 = bolus ended.
+                    val started = (eventTypeId == 8) || (eventTypeId == 16)
 
                     logger(LogLevel.DEBUG) {
                         "Detail info: got history event \"extended bolus ${if (started) "started" else "ended"}\" " +
