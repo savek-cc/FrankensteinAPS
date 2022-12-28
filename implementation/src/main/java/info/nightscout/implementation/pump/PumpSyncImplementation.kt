@@ -471,9 +471,9 @@ class PumpSyncImplementation @Inject constructor(
             }
     }
 
-    override fun syncStopExtendedBolusWithPumpId(timestamp: Long, endPumpId: Long, pumpType: PumpType, pumpSerial: String): Boolean {
+    override fun syncStopExtendedBolusWithPumpId(timestamp: Long, amount: Double?, endPumpId: Long, pumpType: PumpType, pumpSerial: String): Boolean {
         if (!confirmActivePump(timestamp, pumpType, pumpSerial)) return false
-        repository.runTransactionForResult(SyncPumpCancelExtendedBolusIfAnyTransaction(timestamp, endPumpId, pumpType.toDbPumpType(), pumpSerial))
+        repository.runTransactionForResult(SyncPumpCancelExtendedBolusIfAnyTransaction(timestamp, amount, endPumpId, pumpType.toDbPumpType(), pumpSerial))
             .doOnError { aapsLogger.error(LTag.DATABASE, "Error while saving ExtendedBolus", it) }
             .blockingGet()
             .also { result ->
@@ -482,6 +482,10 @@ class PumpSyncImplementation @Inject constructor(
                 }
                 return result.updated.size > 0
             }
+    }
+
+    override fun syncStopExtendedBolusWithPumpId(timestamp: Long, endPumpId: Long, pumpType: PumpType, pumpSerial: String): Boolean {
+        return syncStopExtendedBolusWithPumpId(timestamp, null, endPumpId, pumpType, pumpSerial)
     }
 
     override fun createOrUpdateTotalDailyDose(timestamp: Long, bolusAmount: Double, basalAmount: Double, totalAmount: Double, pumpId: Long?, pumpType: PumpType, pumpSerial: String): Boolean {
