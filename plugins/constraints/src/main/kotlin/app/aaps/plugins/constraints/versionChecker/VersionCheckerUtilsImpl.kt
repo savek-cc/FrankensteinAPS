@@ -115,7 +115,7 @@ class VersionCheckerUtilsImpl @Inject constructor(
         val now = dateUtil.now()
         if (dateUtil.isAfterNoon() && now > preferences.get(VersionCheckerLongKey.LastVersionCheckWarning) + warnEvery(0)) {
             aapsLogger.debug(LTag.CORE, "Version $currentVersion outdated. Found $newVersion")
-            uiInteraction.addNotification(Notification.NEW_VERSION_DETECTED, rh.gs(R.string.versionavailable, newVersion.toString()), Notification.LOW)
+            //uiInteraction.addNotification(Notification.NEW_VERSION_DETECTED, rh.gs(R.string.versionavailable, newVersion.toString()), Notification.LOW)
             preferences.put(VersionCheckerLongKey.LastVersionCheckWarning, now)
         }
         return true
@@ -127,10 +127,10 @@ class VersionCheckerUtilsImpl @Inject constructor(
             // store last notification time
             preferences.put(VersionCheckerLongKey.LastVersionCheckWarning, now)
             //notify
-            uiInteraction.addNotification(Notification.VERSION_EXPIRE, rh.gs(R.string.application_expired), Notification.URGENT)
+            //uiInteraction.addNotification(Notification.VERSION_EXPIRE, rh.gs(R.string.application_expired), Notification.URGENT)
         } else if (dateUtil.isAfterNoon() && now > preferences.get(VersionCheckerLongKey.LastVersionCheckWarning) + warnEvery(endDate)) {
             aapsLogger.debug(LTag.CORE, rh.gs(R.string.version_expire, currentVersion, dateUtil.dateString(endDate)))
-            uiInteraction.addNotification(Notification.VERSION_EXPIRE, rh.gs(R.string.version_expire, currentVersion, dateUtil.dateString(endDate)), Notification.LOW)
+            //uiInteraction.addNotification(Notification.VERSION_EXPIRE, rh.gs(R.string.version_expire, currentVersion, dateUtil.dateString(endDate)), Notification.LOW)
             preferences.put(VersionCheckerLongKey.LastExpiredWarning, now)
         }
     }
