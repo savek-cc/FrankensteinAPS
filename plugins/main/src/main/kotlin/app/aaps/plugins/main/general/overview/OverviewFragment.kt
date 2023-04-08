@@ -211,8 +211,8 @@ class OverviewFragment : DaggerFragment(), View.OnClickListener, OnLongClickList
         carbAnimation?.setExitFadeDuration(1200)
 
         binding.graphsLayout.bgGraph.setOnLongClickListener {
-            overviewData.rangeToDisplay += 6
-            overviewData.rangeToDisplay = if (overviewData.rangeToDisplay > 24) 6 else overviewData.rangeToDisplay
+            overviewData.rangeToDisplay += if (overviewData.rangeToDisplay == 3) 3 else 6
+            overviewData.rangeToDisplay = if (overviewData.rangeToDisplay > 24) 3 else overviewData.rangeToDisplay
             sp.putInt(app.aaps.core.utils.R.string.key_rangetodisplay, overviewData.rangeToDisplay)
             rxBus.send(EventPreferenceChange(rh.gs(app.aaps.core.utils.R.string.key_rangetodisplay)))
             sp.putBoolean(app.aaps.core.utils.R.string.key_objectiveusescale, true)

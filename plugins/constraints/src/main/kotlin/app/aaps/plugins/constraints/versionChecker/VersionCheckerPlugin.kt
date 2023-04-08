@@ -62,18 +62,16 @@ class VersionCheckerPlugin @Inject constructor(
         checkWarning()
         versionCheckerUtils.triggerCheckVersion()
         if (lastCheckOlderThan(gracePeriod.veryOld.daysToMillis()))
-            value.set(false, rh.gs(R.string.very_old_version), this)
+            aapsLogger.debug(LTag.APS, "would have disabled closed loop due to old version")
+            //value.set(false, rh.gs(R.string.very_old_version), this)
         val endDate = sp.getLong(rh.gs(app.aaps.core.utils.R.string.key_app_expiration) + "_" + config.VERSION_NAME, 0)
         if (endDate != 0L && dateUtil.now() > endDate)
-            value.set(false, rh.gs(R.string.application_expired), this)
+            aapsLogger.debug(LTag.APS, "would have disabled closed loop due to expired version")
+            //value.set(false, rh.gs(R.string.application_expired), this)
         return value
     }
 
-    override fun applyMaxIOBConstraints(maxIob: Constraint<Double>): Constraint<Double> =
-        if (lastCheckOlderThan(gracePeriod.old.daysToMillis()))
-            maxIob.set(0.0, rh.gs(R.string.old_version), this)
-        else
-            maxIob
+    override fun applyMaxIOBConstraints(maxIob: Constraint<Double>): Constraint<Double> = maxIob
 
     private fun checkWarning() {
         val now = dateUtil.now()
