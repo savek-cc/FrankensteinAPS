@@ -28,6 +28,7 @@ import app.aaps.core.interfaces.sharedPreferences.SP
 import app.aaps.core.interfaces.utils.DateUtil
 import app.aaps.core.objects.extensions.asAnnouncement
 import app.aaps.core.ui.R
+import app.aaps.database.impl.transactions.SyncPumpCancelExtendedBolusIfAnyTransaction
 import app.aaps.implementation.extensions.toUeSource
 import io.reactivex.rxjava3.disposables.CompositeDisposable
 import io.reactivex.rxjava3.kotlin.plusAssign
@@ -422,11 +423,15 @@ class PumpSyncImplementation @Inject constructor(
             .blockingGet()
     }
 
-    override fun syncStopExtendedBolusWithPumpId(timestamp: Long, endPumpId: Long, pumpType: PumpType, pumpSerial: String): Boolean {
+    override fun syncStopExtendedBolusWithPumpId(timestamp: Long, amount: Double?, endPumpId: Long, pumpType: PumpType, pumpSerial: String): Boolean {
         if (!confirmActivePump(timestamp, pumpType, pumpSerial)) return false
-        return persistenceLayer.syncPumpStopExtendedBolusWithPumpId(timestamp, endPumpId, pumpType, pumpSerial)
+        return persistenceLayer.syncPumpStopExtendedBolusWithPumpId(timestamp, amount, endPumpId, pumpType, pumpSerial)
             .map { result -> result.updated.size > 0 }
             .blockingGet()
+    }
+
+    override fun syncStopExtendedBolusWithPumpId(timestamp: Long, endPumpId: Long, pumpType: PumpType, pumpSerial: String): Boolean {
+        return syncStopExtendedBolusWithPumpId(timestamp, null, endPumpId, pumpType, pumpSerial)
     }
 
     override fun createOrUpdateTotalDailyDose(timestamp: Long, bolusAmount: Double, basalAmount: Double, totalAmount: Double, pumpId: Long?, pumpType: PumpType, pumpSerial: String): Boolean {

@@ -17,7 +17,7 @@ enum class PumpCapability {
     // grouped by pump
     MDI(arrayOf(Bolus)),
     VirtualPumpCapabilities(arrayOf(Bolus, ExtendedBolus, TempBasal, BasalProfileSet, Refill, ReplaceBattery)),
-    ComboCapabilities(arrayOf(Bolus, TempBasal, BasalProfileSet, Refill, ReplaceBattery, TDD, ManualTDDLoad)),
+    ComboCapabilities(arrayOf(Bolus, ExtendedBolus, TempBasal, BasalProfileSet, Refill, ReplaceBattery, TDD, ManualTDDLoad)),
     DanaCapabilities(arrayOf(Bolus, ExtendedBolus, TempBasal, BasalProfileSet, Refill, ReplaceBattery, TDD, ManualTDDLoad)),
 
     //DanaWithHistoryCapabilities(arrayOf(Bolus, ExtendedBolus, TempBasal, BasalProfileSet, Refill, ReplaceBattery, StoreCarbInfo, TDD, ManualTDDLoad)),

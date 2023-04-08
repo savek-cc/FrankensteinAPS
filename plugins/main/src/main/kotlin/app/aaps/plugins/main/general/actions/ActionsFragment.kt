@@ -114,12 +114,7 @@ class ActionsFragment : DaggerFragment() {
         binding.extendedBolus.setOnClickListener {
             activity?.let { activity ->
                 protectionCheck.queryProtection(activity, ProtectionCheck.Protection.BOLUS, UIRunnable {
-                    OKDialog.showConfirmation(
-                        activity, rh.gs(app.aaps.core.ui.R.string.extended_bolus), rh.gs(R.string.ebstopsloop),
-                        Runnable {
                             uiInteraction.runExtendedBolusDialog(childFragmentManager)
-                        }, null
-                    )
                 })
             }
         }

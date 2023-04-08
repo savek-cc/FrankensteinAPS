@@ -16,6 +16,7 @@ import app.aaps.core.data.pump.defs.PumpDescription
 import app.aaps.core.data.pump.defs.PumpType
 import app.aaps.core.data.pump.defs.TimeChangeType
 import app.aaps.core.interfaces.androidPermissions.AndroidPermission
+import app.aaps.core.interfaces.aps.Loop
 import app.aaps.core.interfaces.configuration.Config
 import app.aaps.core.interfaces.constraints.Constraint
 import app.aaps.core.interfaces.constraints.ConstraintsChecker
@@ -49,6 +50,7 @@ import app.aaps.core.objects.constraints.ConstraintObject
 import app.aaps.core.ui.dialogs.OKDialog
 import app.aaps.core.ui.toast.ToastUtils
 import info.nightscout.comboctl.android.AndroidBluetoothInterface
+import info.nightscout.comboctl.base.ApplicationLayer
 import info.nightscout.comboctl.base.BasicProgressStage
 import info.nightscout.comboctl.base.BluetoothException
 import info.nightscout.comboctl.base.BluetoothNotAvailableException
@@ -121,6 +123,7 @@ class ComboV2Plugin @Inject constructor(
     private val config: Config,
     private val decimalFormatter: DecimalFormatter,
     private val instantiator: Instantiator
+    private val loop: Loop
 ) :
     PumpPluginBase(
         PluginDescription()
@@ -1099,6 +1102,9 @@ class ComboV2Plugin @Inject constructor(
                     acquiredPump.deliverBolus(requestedBolusAmount, bolusReason)
                 }
 
+                pumpEnactResult.apply {
+                    bolusDelivered = detailedBolusInfo.insulin
+                }
                 reportFinishedBolus(rh.gs(app.aaps.core.ui.R.string.bolus_delivered_successfully, detailedBolusInfo.insulin), pumpEnactResult, succeeded = true)
             } catch (e: CancellationException) {
                 // Cancellation is not an error, but it also means
@@ -1335,11 +1341,67 @@ class ComboV2Plugin @Inject constructor(
         }
     }
 
-    // It is currently not known how to program an extended bolus into the Combo.
-    // Until that is reverse engineered, inform callers that we can't handle this.
+    override fun setExtendedBolus(insulin: Double, durationInMinutes: Int): PumpEnactResult {
+        val requestedInsulinAmount = constraintChecker
+            .applyBolusConstraints(ConstraintObject(insulin, aapsLogger))
+            .value()
+        aapsLogger.debug(
+            LTag.PUMP,
+            "Applied bolus constraints:  old insulin amount: $insulin  new: ${requestedInsulinAmount}"
+        )
 
-    override fun setExtendedBolus(insulin: Double, durationInMinutes: Int): PumpEnactResult =
-        createFailurePumpEnactResult(R.string.combov2_extended_bolus_not_supported)
+        val requestedBolusAmount = requestedInsulinAmount.iuToCctlBolus()
+
+        val pumpEnactResult = PumpEnactResult(injector)
+        pumpEnactResult.success = false
+
+        runBlocking {
+            try {
+                executeCommand {
+                    pump!!.deliverBolus(
+                        totalBolusAmount=requestedBolusAmount,
+                        immediateBolusAmount = 0,
+                        durationInMinutes=durationInMinutes,
+                        standardBolusReason = info.nightscout.comboctl.main.Pump.StandardBolusReason.NORMAL,
+                        bolusType = ApplicationLayer.CMDDeliverBolusType.EXTENDED_BOLUS)
+                    pumpEnactResult.apply {
+                        success = true
+                        enacted = true
+                        comment = "Setting Extended Bolus succeeded"
+                    }
+                }
+            } catch (e: ComboCtlPump.BolusNotDeliveredException) {
+                aapsLogger.error(LTag.PUMP, "Bolus not delivered")
+                pumpEnactResult.apply {
+                    success = false
+                    enacted = false
+                    comment = "Extended Bolus not delivered"
+                }
+            } catch (e: ComboCtlPump.UnaccountedBolusDetectedException) {
+                aapsLogger.error(LTag.PUMP, "Unaccounted bolus detected")
+                pumpEnactResult.apply {
+                    success = false
+                    enacted = false
+                    comment = rh.gs(R.string.combov2_unaccounted_bolus_detected_cancelling_bolus)
+                }
+            } catch (e: ComboCtlPump.InsufficientInsulinAvailableException) {
+                aapsLogger.error(LTag.PUMP, "Insufficient insulin in reservoir")
+                pumpEnactResult.apply {
+                    success = false
+                    enacted = false
+                    comment = rh.gs(R.string.combov2_insufficient_insulin_in_reservoir)
+                }
+            } catch (e: Exception) {
+                aapsLogger.error(LTag.PUMP, "Exception thrown during bolus delivery: $e")
+                pumpEnactResult.apply {
+                    success = false
+                    enacted = false
+                    comment = rh.gs(R.string.combov2_bolus_delivery_failed)
+                }
+            }
+        }
+        return pumpEnactResult
+    }
 
     override fun cancelExtendedBolus(): PumpEnactResult =
         createFailurePumpEnactResult(R.string.combov2_extended_bolus_not_supported)
@@ -2056,11 +2118,20 @@ class ComboV2Plugin @Inject constructor(
                     PumpType.ACCU_CHEK_COMBO,
                     serialNumber()
                 )
+                val now = dateUtil.now()
+                val end = event.timestamp.toEpochMilliseconds() + event.totalDurationMinutes * 60 * 1000
+                if (end > now) {
+                    val suspendForMinutes = ((end - now) / 60 / 1000).toInt() + 1 //add one for good measure as combo time and mobile time might be slightly out of sync
+                    aapsLogger.debug(LTag.PUMP, "Pump reports EB started; amount: ${event.totalBolusAmount}, duration: ${event.totalDurationMinutes} - suspending loop for $suspendForMinutes minutes")
+                    loop.suspendLoop(suspendForMinutes)
+                }
             }
 
-            is ComboCtlPump.Event.ExtendedBolusEnded   -> {
+            is ComboCtlPump.Event.ExtendedBolusEnded -> {
+                aapsLogger.debug(LTag.PUMP, "Pump reports EB ended; amount: ${event.totalBolusAmount}, duration: ${event.totalDurationMinutes}")
                 pumpSync.syncStopExtendedBolusWithPumpId(
                     event.timestamp.toEpochMilliseconds(),
+                    event.totalBolusAmount.cctlBolusToIU(),
                     event.bolusId,
                     PumpType.ACCU_CHEK_COMBO,
                     serialNumber()

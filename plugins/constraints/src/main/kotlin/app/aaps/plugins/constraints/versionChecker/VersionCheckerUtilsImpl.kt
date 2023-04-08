@@ -121,7 +121,7 @@ class VersionCheckerUtilsImpl @Inject constructor(
         val now = dateUtil.now()
         if (now > sp.getLong(R.string.key_last_versionchecker_warning, 0) + WARN_EVERY) {
             aapsLogger.debug(LTag.CORE, "Version $currentVersion outdated. Found $newVersion")
-            uiInteraction.addNotification(Notification.NEW_VERSION_DETECTED, rh.gs(R.string.versionavailable, newVersion.toString()), Notification.LOW)
+            //uiInteraction.addNotification(Notification.NEW_VERSION_DETECTED, rh.gs(R.string.versionavailable, newVersion.toString()), Notification.LOW)
             sp.putLong(R.string.key_last_versionchecker_warning, now)
         }
     }
@@ -130,7 +130,7 @@ class VersionCheckerUtilsImpl @Inject constructor(
         val now = dateUtil.now()
         if (now > sp.getLong(R.string.key_last_expired_versionchecker_warning, 0) + WARN_EVERY) {
             aapsLogger.debug(LTag.CORE, rh.gs(R.string.version_expire, currentVersion, endDate))
-            uiInteraction.addNotification(Notification.VERSION_EXPIRE, rh.gs(R.string.version_expire, currentVersion, endDate), Notification.LOW)
+            //uiInteraction.addNotification(Notification.VERSION_EXPIRE, rh.gs(R.string.version_expire, currentVersion, endDate), Notification.LOW)
             sp.putLong(R.string.key_last_expired_versionchecker_warning, now)
         }
     }

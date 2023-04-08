@@ -661,8 +661,8 @@ class PersistenceLayerImpl @Inject constructor(
                 transactionResult
             }
 
-    override fun syncPumpStopExtendedBolusWithPumpId(timestamp: Long, endPumpId: Long, pumpType: PumpType, pumpSerial: String): Single<PersistenceLayer.TransactionResult<EB>> =
-        repository.runTransactionForResult(SyncPumpCancelExtendedBolusIfAnyTransaction(timestamp, endPumpId, pumpType.toDb(), pumpSerial))
+    override fun syncPumpStopExtendedBolusWithPumpId(timestamp: Long, amount: Double?, endPumpId: Long, pumpType: PumpType, pumpSerial: String): Single<PersistenceLayer.TransactionResult<EB>> =
+        repository.runTransactionForResult(SyncPumpCancelExtendedBolusIfAnyTransaction(timestamp, amount, endPumpId, pumpType.toDb(), pumpSerial))
             .doOnError { aapsLogger.error(LTag.DATABASE, "Error while syncing ExtendedBolus", it) }
             .map { result ->
                 val transactionResult = PersistenceLayer.TransactionResult<EB>()

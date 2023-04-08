@@ -562,7 +562,7 @@ class OverviewFragment : DaggerFragment(), View.OnClickListener, OnLongClickList
         val lastRun = loop.lastRun
         val closedLoopEnabled = constraintChecker.isClosedLoopAllowed()
 
-        val showAcceptButton = !closedLoopEnabled.value() && // Open mode needed
+        val showAcceptButton = !closedLoopEnabled.value() && (iobCobCalculator.getExtendedBolus(dateUtil.now()) != null) // Open mode needed
             lastRun != null &&
             (lastRun.lastOpenModeAccept == 0L || lastRun.lastOpenModeAccept < lastRun.lastAPSRun) &&// never accepted or before last result
             lastRun.constraintsProcessed?.isChangeRequested == true // change is requested

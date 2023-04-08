@@ -539,6 +539,32 @@ interface PumpSync {
      **/
     fun syncStopExtendedBolusWithPumpId(timestamp: Long, endPumpId: Long, pumpType: PumpType, pumpSerial: String): Boolean
 
+    /**
+     * Synchronization of extended bolus end event
+     * (for pumps having separate event for end of EB or not having history)
+     * (not useful for pump modifying duration in history log)
+     *
+     * Search first for a TBR with combination of endPumpId, pumpType, pumpSerial
+     *      if found assume, some running EB has been already cut off and ignore data. False is returned
+     *
+     * Search for running EB with combination of pumpType, pumpSerial
+     *
+     * If exists,
+     *      currently running record is cut off by provided timestamp (ie duration and amount is adjusted)
+     *      endPumpId is stored to running record
+     * If db record doesn't exist data is ignored and false returned
+     *
+     * see [info.nightscout.database.impl.transactions.SyncPumpCancelExtendedBolusIfAnyTransaction]
+     *
+     * @param timestamp     timestamp of event from pump history
+     * @param amount        EB delivered total amount in U
+     * @param endPumpId     pump id of ending event from history
+     * @param pumpType      pump type like PumpType.ACCU_CHEK_COMBO
+     * @param pumpSerial    pump serial number
+     * @return true if running record is found and ended by changing duration
+     **/
+    fun syncStopExtendedBolusWithPumpId(timestamp: Long, amount: Double? = null, endPumpId: Long, pumpType: PumpType, pumpSerial: String): Boolean
+
     /*
     *   TOTAL DAILY DOSE
     */
