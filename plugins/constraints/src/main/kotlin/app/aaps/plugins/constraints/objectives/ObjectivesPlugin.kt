@@ -73,6 +73,7 @@ class ObjectivesPlugin @Inject constructor(
     /**
      * Constraints interface
      */
+    /**
     override fun isLoopInvocationAllowed(value: Constraint<Boolean>): Constraint<Boolean> {
         // Check if initialized
         if (objectives.isEmpty()) return value
@@ -120,7 +121,7 @@ class ObjectivesPlugin @Inject constructor(
             value.set(false, rh.gs(R.string.objectivenotstarted, AUTO_OBJECTIVE + 1), this)
         return value
     }
-
+    */
     override fun isAccomplished(index: Int) = objectives[index].isAccomplished
     override fun isStarted(index: Int): Boolean = objectives[index].isStarted
 }
