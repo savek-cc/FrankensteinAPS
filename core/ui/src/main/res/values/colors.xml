@@ -374,4 +374,6 @@
     <color name="toastWarn">#FF8C00</color>
     <color name="toastInfo">#03A9F4</color>
 
+    <!-- custom colors -->
+    <color name="aaps_pink">#FFC0CB</color>
 </resources>
