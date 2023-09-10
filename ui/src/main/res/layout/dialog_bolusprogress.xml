@@ -73,7 +73,9 @@
         android:maxHeight="5dp"
         android:minHeight="3dp"
         android:scaleY="5"
-        tools:progress="50" />
+        tools:progress="50"
+        android:progressTint="@color/aaps_pink"
+        android:indeterminateTint="@color/aaps_pink" />
 
     <com.google.android.material.button.MaterialButton
         style="@style/GrayButton"

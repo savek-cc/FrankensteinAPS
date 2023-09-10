@@ -382,4 +382,6 @@
     <!--    Automations-->
     <color name="actionColor">#FF8B00</color>
 
+    <!-- custom colors -->
+    <color name="aaps_pink">#FFC0CB</color>
 </resources>
