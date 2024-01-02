@@ -17,6 +17,8 @@ import app.aaps.core.data.pump.defs.ManufacturerType
 import app.aaps.core.data.pump.defs.PumpDescription
 import app.aaps.core.data.pump.defs.PumpType
 import app.aaps.core.data.pump.defs.TimeChangeType
+import app.aaps.core.data.ue.Sources
+import app.aaps.core.data.ue.ValueWithUnit
 import app.aaps.core.interfaces.androidPermissions.AndroidPermission
 import app.aaps.core.interfaces.aps.Loop
 import app.aaps.core.interfaces.configuration.Config
@@ -1314,7 +1316,7 @@ class ComboV2Plugin @Inject constructor(
 
         val requestedBolusAmount = requestedInsulinAmount.iuToCctlBolus()
 
-        val pumpEnactResult = PumpEnactResult(injector)
+        val pumpEnactResult = instantiator.providePumpEnactResult()
         pumpEnactResult.success = false
 
         runBlocking {
@@ -1959,7 +1961,13 @@ class ComboV2Plugin @Inject constructor(
                 if (end > now) {
                     val suspendForMinutes = ((end - now) / 60 / 1000).toInt() + 1 //add one for good measure as combo time and mobile time might be slightly out of sync
                     aapsLogger.debug(LTag.PUMP, "Pump reports EB started; amount: ${event.totalBolusAmount}, duration: ${event.totalDurationMinutes} - suspending loop for $suspendForMinutes minutes")
-                    loop.suspendLoop(suspendForMinutes)
+                    loop.suspendLoop(
+                        durationInMinutes = suspendForMinutes,
+                        action = app.aaps.core.data.ue.Action.SUSPEND,
+                        source = Sources.Combo,
+                        note = "extended bolus: suspending loop for $suspendForMinutes minutes",
+                        listValues = listOf(ValueWithUnit.Minute(suspendForMinutes))
+                    )
                 }
             }
 
