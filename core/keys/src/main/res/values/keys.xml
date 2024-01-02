@@ -91,6 +91,7 @@
     <string name="key_openaps_smb_interval" translatable="false">smbinterval</string>
     <string name="key_openaps_smb_max_minutes" translatable="false">smbmaxminutes</string>
     <string name="key_openaps_uam_smb_max_minutes" translatable="false">uamsmbmaxminutes</string>
+    <string name="key_openaps_smb_percent" translatable="false">smbpercent</string>
     <string name="key_openaps_use_uam" translatable="false">use_uam</string>
     <string name="key_openaps_sensitivity_raises_target" translatable="false">sensitivity_raises_target</string>
     <string name="key_openaps_resistance_lowers_target" translatable="false">resistance_lowers_target</string>

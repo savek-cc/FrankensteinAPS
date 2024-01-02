@@ -201,6 +201,7 @@ class ReplayApsResultsTest @Inject constructor() {
             allowSMB_with_high_temptarget = determineBasalResult.profile.getBoolean("allowSMB_with_high_temptarget"),
             enableSMB_always = determineBasalResult.profile.getBoolean("enableSMB_always"),
             enableSMB_after_carbs = determineBasalResult.profile.getBoolean("enableSMB_after_carbs"),
+            smbPercent = determineBasalResult.profile.getInt("smbPercent"),
             maxSMBBasalMinutes = determineBasalResult.profile.getInt("maxSMBBasalMinutes"),
             maxUAMSMBBasalMinutes = determineBasalResult.profile.getInt("maxUAMSMBBasalMinutes"),
             bolus_increment = determineBasalResult.profile.getDouble("bolus_increment"),

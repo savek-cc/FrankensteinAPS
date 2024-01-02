@@ -28,7 +28,6 @@ import app.aaps.core.interfaces.sharedPreferences.SP
 import app.aaps.core.interfaces.utils.DateUtil
 import app.aaps.core.objects.extensions.asAnnouncement
 import app.aaps.core.ui.R
-import app.aaps.database.impl.transactions.SyncPumpCancelExtendedBolusIfAnyTransaction
 import app.aaps.implementation.extensions.toUeSource
 import io.reactivex.rxjava3.disposables.CompositeDisposable
 import io.reactivex.rxjava3.kotlin.plusAssign
