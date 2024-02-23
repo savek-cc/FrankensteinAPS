@@ -38,6 +38,10 @@ import app.aaps.core.validators.preferences.AdaptiveListPreference
 import app.aaps.plugins.automation.actions.Action
 import app.aaps.plugins.automation.actions.ActionAlarm
 import app.aaps.plugins.automation.actions.ActionCarePortalEvent
+import app.aaps.plugins.automation.actions.ActionLoopDisable
+import app.aaps.plugins.automation.actions.ActionLoopEnable
+import app.aaps.plugins.automation.actions.ActionLoopResume
+import app.aaps.plugins.automation.actions.ActionLoopSuspend
 import app.aaps.plugins.automation.actions.ActionNotification
 import app.aaps.plugins.automation.actions.ActionProfileSwitch
 import app.aaps.plugins.automation.actions.ActionProfileSwitchPercent
@@ -391,6 +395,10 @@ class AutomationPlugin @Inject constructor(
 
     fun getActionDummyObjects(): List<Action> {
         val actions = mutableListOf(
+            ActionLoopDisable(injector),
+            ActionLoopEnable(injector),
+            ActionLoopResume(injector),
+            ActionLoopSuspend(injector),
             ActionStopProcessing(injector),
             ActionStartTempTarget(injector),
             ActionStopTempTarget(injector),
