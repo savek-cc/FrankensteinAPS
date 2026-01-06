@@ -11,12 +11,15 @@ import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.PreferenceManager
 import androidx.preference.PreferenceScreen
 import app.aaps.core.data.model.BS
+import app.aaps.core.data.model.RM
 import app.aaps.core.data.model.TE
 import app.aaps.core.data.plugin.PluginType
 import app.aaps.core.data.pump.defs.ManufacturerType
 import app.aaps.core.data.pump.defs.PumpDescription
 import app.aaps.core.data.pump.defs.PumpType
 import app.aaps.core.data.pump.defs.TimeChangeType
+import app.aaps.core.data.time.T
+import app.aaps.core.data.ue.Action
 import app.aaps.core.data.ue.Sources
 import app.aaps.core.data.ue.ValueWithUnit
 import app.aaps.core.interfaces.androidPermissions.AndroidPermission
@@ -30,6 +33,7 @@ import app.aaps.core.interfaces.logging.LTag
 import app.aaps.core.interfaces.notifications.Notification
 import app.aaps.core.interfaces.plugin.PluginDescription
 import app.aaps.core.interfaces.profile.Profile
+import app.aaps.core.interfaces.profile.ProfileFunction
 import app.aaps.core.interfaces.pump.DetailedBolusInfo
 import app.aaps.core.interfaces.pump.Pump
 import app.aaps.core.interfaces.pump.PumpEnactResult
@@ -116,6 +120,7 @@ import info.nightscout.comboctl.base.Tbr as ComboCtlTbr
 import info.nightscout.comboctl.main.Pump as ComboCtlPump
 import info.nightscout.comboctl.main.PumpManager as ComboCtlPumpManager
 
+
 internal const val PUMP_ERROR_TIMEOUT_INTERVAL_MSECS = 1000L * 60 * 5
 
 @Singleton
@@ -134,7 +139,8 @@ class ComboV2Plugin @Inject constructor(
     private val androidPermission: AndroidPermission,
     private val config: Config,
     private val loop: Loop,
-    private val pumpEnactResultProvider: Provider<PumpEnactResult>
+    private val pumpEnactResultProvider: Provider<PumpEnactResult>,
+    private val profileFunction: ProfileFunction
 ) :
     PumpPluginBase(
         pluginDescription = PluginDescription()
@@ -1316,7 +1322,7 @@ class ComboV2Plugin @Inject constructor(
 
         val requestedBolusAmount = requestedInsulinAmount.iuToCctlBolus()
 
-        val pumpEnactResult = instantiator.providePumpEnactResult()
+        val pumpEnactResult = pumpEnactResultProvider.get()
         pumpEnactResult.success = false
 
         runBlocking {
@@ -1959,15 +1965,10 @@ class ComboV2Plugin @Inject constructor(
                 val now = dateUtil.now()
                 val end = event.timestamp.toEpochMilliseconds() + event.totalDurationMinutes * 60 * 1000
                 if (end > now) {
+                    val profile = profileFunction.getProfile() ?: return
                     val suspendForMinutes = ((end - now) / 60 / 1000).toInt() + 1 //add one for good measure as combo time and mobile time might be slightly out of sync
                     aapsLogger.debug(LTag.PUMP, "Pump reports EB started; amount: ${event.totalBolusAmount}, duration: ${event.totalDurationMinutes} - suspending loop for $suspendForMinutes minutes")
-                    loop.suspendLoop(
-                        durationInMinutes = suspendForMinutes,
-                        action = app.aaps.core.data.ue.Action.SUSPEND,
-                        source = Sources.Combo,
-                        note = "extended bolus: suspending loop for $suspendForMinutes minutes",
-                        listValues = listOf(ValueWithUnit.Minute(suspendForMinutes))
-                    )
+                    loop.handleRunningModeChange(newRM = RM.Mode.SUSPENDED_BY_USER, durationInMinutes = suspendForMinutes, action = Action.SUSPEND, source = Sources.Combo, profile = profile)
                 }
             }
 

@@ -57,7 +57,7 @@
     <string name="disconnectpumpfor30m">Trenne Pumpe für 30 min</string>
     <string name="disconnectpumpfor1h">Trenne Pumpe für 1 h</string>
     <string name="disconnectpumpfor2h">Trenne Pumpe für 2 h</string>
-    <string name="disconnectpumpfor3h">Trenne Pumpe für 3 h</string>
+    <string name="disconnectpumpfor6h">Trenne Pumpe für 6 h</string>
     <string name="resume">Fortsetzen</string>
     <string name="reconnect">Pumpe erneut verbinden</string>
     <string name="duration15m">15 Min.</string>
@@ -65,6 +65,7 @@
     <string name="duration1h">1 Std.</string>
     <string name="duration2h">2 Std.</string>
     <string name="duration3h">3 Std.</string>
+    <string name="duration6h">6 Std.</string>
     <string name="duration10h">10 Std.</string>
     <!-- WizardDialog -->
     <string name="a11_correction_percentage">korrektes Ergebnis mit %</string>

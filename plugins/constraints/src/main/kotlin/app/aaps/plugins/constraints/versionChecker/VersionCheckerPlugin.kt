@@ -38,6 +38,6 @@ class VersionCheckerPlugin @Inject constructor(
 
     override fun applyMaxIOBConstraints(maxIob: Constraint<Double>): Constraint<Double> {
         versionCheckerUtils.triggerCheckVersion()
-        maxIob
+        return maxIob
     }
 }
