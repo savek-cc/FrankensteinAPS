@@ -125,7 +125,7 @@ class LoopDialog : DaggerDialogFragment() {
         binding.overviewDisconnect30m.setOnClickListener { if (showOkCancel) onClickOkCancelEnabled(it) else onClick(it); dismiss() }
         binding.overviewDisconnect1h.setOnClickListener { if (showOkCancel) onClickOkCancelEnabled(it) else onClick(it); dismiss() }
         binding.overviewDisconnect2h.setOnClickListener { if (showOkCancel) onClickOkCancelEnabled(it) else onClick(it); dismiss() }
-        binding.overviewDisconnect3h.setOnClickListener { if (showOkCancel) onClickOkCancelEnabled(it) else onClick(it); dismiss() }
+        binding.overviewDisconnect6h.setOnClickListener { if (showOkCancel) onClickOkCancelEnabled(it) else onClick(it); dismiss() }
 
         // cancel button
         binding.cancel.setOnClickListener { dismiss() }
@@ -220,7 +220,7 @@ class LoopDialog : DaggerDialogFragment() {
             R.id.overview_disconnect_30m -> description = rh.gs(R.string.disconnectpumpfor30m)
             R.id.overview_disconnect_1h  -> description = rh.gs(R.string.disconnectpumpfor1h)
             R.id.overview_disconnect_2h  -> description = rh.gs(R.string.disconnectpumpfor2h)
-            R.id.overview_disconnect_3h  -> description = rh.gs(R.string.disconnectpumpfor3h)
+            R.id.overview_disconnect_6h  -> description = rh.gs(R.string.disconnectpumpfor6h)
         }
         activity?.let { activity ->
             OKDialog.showConfirmation(activity, rh.gs(app.aaps.core.ui.R.string.confirm), description, Runnable {
@@ -300,8 +300,8 @@ class LoopDialog : DaggerDialogFragment() {
                 return true
             }
 
-            R.id.overview_disconnect_3h                   -> {
-                loop.handleRunningModeChange(newRM = RM.Mode.DISCONNECTED_PUMP, durationInMinutes = 180, action = Action.DISCONNECT, source = Sources.LoopDialog, profile = profile)
+            R.id.overview_disconnect_6h                   -> {
+                loop.handleRunningModeChange(newRM = RM.Mode.DISCONNECTED_PUMP, durationInMinutes = 360, action = Action.DISCONNECT, source = Sources.LoopDialog, profile = profile)
                 return true
             }
         }
