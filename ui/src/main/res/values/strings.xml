@@ -85,6 +85,7 @@
     <string name="disconnectpumpfor30m">Disconnect pump for 30 min</string>
     <string name="disconnectpumpfor1h">Disconnect pump for 1 h</string>
     <string name="disconnectpumpfor2h">Disconnect pump for 2 h</string>
+    <string name="disconnectpumpfor3h">Disconnect pump for 3 h</string>
     <string name="disconnectpumpfor6h">Disconnect pump for 6 h</string>
     <string name="resume">Resume</string>
     <string name="reconnect">Reconnect Pump</string>
