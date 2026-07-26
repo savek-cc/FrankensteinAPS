@@ -155,6 +155,49 @@ Pumpe damit auch den verzögerten Anteil beendet oder nur den Sofortanteil (der 
 nirgends — aber anders als beim reinen Extended Bolus gibt es überhaupt einen gültigen Cancel-Typ,
 der zum laufenden Bolus passt. Genau das macht deinen Vorschlag zum aussichtsreichsten Test.
 
+### Messergebnis vom Prüfstand (2026-07-27, Pumpe PUMP_41382078)
+
+**Die Idee „Multiwave mit Sofortanteil 0" ist widerlegt — auf zwei unabhängigen Wegen.**
+
+1. Die Protokollspezifikation sagt es ausdrücklich (`docs/combo-comm-spec.adoc`, Abschnitt zu
+   CMD_DELIVER_BOLUS):
+
+   > This implies that the immediate amount must always be less than the total amount.
+   > **It also must be at least 1 (= 0.1 IU).**
+
+2. Die Pumpe bestätigt es. `deliverCMDStandardBolus(total=5, immediate=0, duration=15,
+   MULTIWAVE_BOLUS)` wird abgelehnt mit `CMD values not within threshold` (0xF605) — ein
+   Parameterfehler, kein Verfügbarkeitsfehler.
+
+Der kleinstmögliche Sofortanteil ist also **0,1 IE**. Ein über Multiwave nachgebildeter „Extended
+Bolus" würde damit immer 0,1 IE sofort abgeben und den Rest verzögert. Ob das für den Zweck (siehe
+Feature B) akzeptabel ist, ist eine Therapieentscheidung, keine technische mehr.
+
+**Nebenbefunde, die für die Umsetzung zählen:**
+
+- Standardbolus funktioniert einwandfrei: `bolusStarted=true`, Status unmittelbar danach
+  `DELIVERED`, und im History-Delta erscheinen zwei Einträge:
+  `StandardBolusRequested(bolusAmount=1, manual=false)` und
+  `StandardBolusInfused(bolusAmount=1, manual=false)`. `bolusAmount` zählt in 0,1-IE-Einheiten,
+  `manual=false` kennzeichnet die Abgabe über das Protokoll statt über das Pumpenmenü.
+- Extended und Multiwave werden von dieser Pumpe mit `CMD bolus is not available at the moment`
+  (0xF636) abgelehnt, obwohl der Pumpenstatus `RUNNING` ist und keine Fehler/Warnungen anliegen.
+  Ursache: **die Bolusarten sind in den Pumpeneinstellungen deaktiviert** (bestätigt am Gerät).
+  Die Spec führt bei 0xF636 nur „typically because the pump is stopped" auf — der Fall
+  „Bolusart deaktiviert" fehlt dort und ist damit ein Ergänzungspunkt für die Doku.
+  Für AAPS heißt das: Ein Treiber, der Extended Bolus anbietet, muss diesen Fehlercode sauber an
+  den Nutzer melden („Bolusart an der Pumpe nicht freigeschaltet"), sonst sieht es nach einem
+  Treiberfehler aus.
+
+**Noch offen** (braucht die Pumpe mit freigeschalteten Bolusarten):
+
+- Beendet `CMD_CANCEL_BOLUS(MULTI_WAVE)` einen laufenden Multiwave inklusive des verzögerten
+  Anteils?
+- Wirkt derselbe Cancel auch auf einen reinen Extended Bolus?
+- Was meldet `CMD_GET_BOLUS_STATUS` während eines Multiwave mit 0,1-IE-Sofortanteil — bricht die
+  Polling-Schleife in `Pump.deliverBolus` sauber ab?
+- Welche History-Einträge entstehen bei Start, regulärem Ende und Abbruch, und mit welchen Mengen?
+
 ### Angepasste Testreihenfolge
 
 1. `deliverBolus(totalBolusAmount = x, immediateBolusAmount = 0, durationInMinutes = 15,
