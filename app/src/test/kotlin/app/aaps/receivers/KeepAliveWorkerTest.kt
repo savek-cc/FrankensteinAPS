@@ -125,6 +125,24 @@ class KeepAliveWorkerTest : TestBaseWithProfile() {
     }
 
     @Test
+    fun `checkPump requests status even if no profile switch record exists`() = runBlocking {
+        // Arrange: profile switch record was cleaned up from the database
+        worker = createWorker()
+        whenever(loop.runningMode).thenReturn(RM.Mode.OPEN_LOOP)
+        whenever(profileFunction.getRequestedProfile()).thenReturn(null)
+        whenever(profileFunction.getProfile()).thenReturn(validProfile)
+        testPumpPlugin.lastData = now - T.mins(20).msecs()
+
+        // Act
+        worker.checkPump()
+
+        // Assert
+        verify(commandQueue).readStatus(anyOrNull(), anyOrNull())
+        verify(mockedRxBus, never()).send(any<EventProfileSwitchChanged>())
+        Unit
+    }
+
+    @Test
     fun `checkAPS schedules device status upload if BG is missing`() = runBlocking {
         // Arrange
         worker = createWorker()
