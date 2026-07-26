@@ -188,13 +188,16 @@ class KeepAliveWorker(
     @VisibleForTesting
     fun checkPump() {
         val pump = activePlugin.activePump
-        val ps = profileFunction.getRequestedProfile() ?: return
-        val requestedProfile = ProfileSealed.PS(ps, activePlugin)
+        // The profile switch record may be missing (ie. cleaned up from the database). Status
+        // reading and the pump unreachable alarm must keep working in that case, only the profile
+        // comparison below is skipped.
+        val requestedProfile = profileFunction.getRequestedProfile()?.let { ProfileSealed.PS(it, activePlugin) }
         val runningProfile = profileFunction.getProfile()
         val lastConnection = pump.lastDataTime
         val now = dateUtil.now()
         val isStatusOutdated = lastConnection + STATUS_UPDATE_FREQUENCY < now
-        val isBasalOutdated = abs(requestedProfile.getBasal() - pump.baseBasalRate) > pump.pumpDescription.basalStep
+        val isBasalOutdated = requestedProfile != null &&
+            abs(requestedProfile.getBasal() - pump.baseBasalRate) > pump.pumpDescription.basalStep
         aapsLogger.debug(LTag.CORE, "Last connection: " + dateUtil.dateAndTimeString(lastConnection))
         // Sometimes it can happen that keepalive is not triggered every 5 minutes as it should.
         // In some cases, it may not even have been started at all.
@@ -210,18 +213,24 @@ class KeepAliveWorker(
         if (lastReadStatus != 0L && (now - lastReadStatus).coerceIn(minimumValue = 0, maximumValue = null) <= T.secs(5 * 60 + 30).msecs()) {
             localAlertUtils.checkPumpUnreachableAlarm(lastConnection, isStatusOutdated, loop.runningMode == RM.Mode.DISCONNECTED_PUMP)
         }
+        val expiredProfileSwitch = runningProfile is ProfileSealed.EPS &&
+            runningProfile.value.originalEnd < now &&
+            runningProfile.value.originalDuration != 0L
+        val profileSwitchNeeded = requestedProfile != null &&
+            (
+                runningProfile == null ||
+                    (
+                        (!pump.isThisProfileSet(requestedProfile) ||
+                            !requestedProfile.isEqual(runningProfile) ||
+                            expiredProfileSwitch
+                            )
+                            && !commandQueue.isRunning(Command.CommandType.BASAL_PROFILE)
+                        )
+                )
+
         if (loop.runningMode == RM.Mode.DISCONNECTED_PUMP) {
             // do nothing if pump is disconnected
-        } else if (
-            runningProfile == null ||
-            (
-                (!pump.isThisProfileSet(requestedProfile) ||
-                    !requestedProfile.isEqual(runningProfile) ||
-                    (runningProfile is ProfileSealed.EPS && runningProfile.value.originalEnd < dateUtil.now() && runningProfile.value.originalDuration != 0L)
-                    )
-                    && !commandQueue.isRunning(Command.CommandType.BASAL_PROFILE)
-                )
-        ) {
+        } else if (profileSwitchNeeded) {
             rxBus.send(EventProfileSwitchChanged())
         } else if (isStatusOutdated && !pump.isBusy()) {
             lastReadStatus = now
