@@ -189,14 +189,33 @@ Feature B) akzeptabel ist, ist eine Therapieentscheidung, keine technische mehr.
   den Nutzer melden („Bolusart an der Pumpe nicht freigeschaltet"), sonst sieht es nach einem
   Treiberfehler aus.
 
+### Entwurfsentscheidung (Timm, 2026-07-27): Sofortanteil ist akzeptabel
+
+Ein Sofortanteil von 0,1 IE ist in Ordnung; 0,5 IE wären sogar erwünscht, damit früher Insulin
+verfügbar ist. Damit ist der Multiwave-Weg weiter der aussichtsreichste Kandidat — und zwei der
+zuvor notierten Probleme lösen sich dadurch von selbst:
+
+- **Das Polling-Risiko entfällt.** Die Schleife in `Pump.deliverBolus` bricht ab, sobald
+  `deliveredAmount >= expectedImmediateAmount` gilt. Mit einem Sofortanteil > 0 verhält sie sich wie
+  beim Standardbolus (gemessen: Status unmittelbar nach dem Kommando `DELIVERED`). Der Sonderfall
+  „Polling bei Sofortanteil 0 überspringen" wird nicht gebraucht.
+- **Die Buchung wird exakt statt geschätzt.** `MultiwaveBolusStarted` trägt `totalBolusAmount` und
+  `immediateBolusAmount` getrennt, AAPS kann den Sofortanteil als Bolus und `total − immediate` als
+  Extended Bolus buchen.
+
+Offen ist die Dimensionierung: fixer Wert oder prozentualer Anteil mit Untergrenze 0,1 IE. Bei einem
+1-IE-Bolus sind 0,5 IE die Hälfte, bei 8 IE sechs Prozent — sinnvollerweise eine Einstellung mit
+Default statt einer festen Zahl. Entscheidung erst, wenn der Abbruch nachgewiesen ist.
+
 **Noch offen** (braucht die Pumpe mit freigeschalteten Bolusarten):
 
 - Beendet `CMD_CANCEL_BOLUS(MULTI_WAVE)` einen laufenden Multiwave inklusive des verzögerten
   Anteils?
 - Wirkt derselbe Cancel auch auf einen reinen Extended Bolus?
-- Was meldet `CMD_GET_BOLUS_STATUS` während eines Multiwave mit 0,1-IE-Sofortanteil — bricht die
-  Polling-Schleife in `Pump.deliverBolus` sauber ab?
-- Welche History-Einträge entstehen bei Start, regulärem Ende und Abbruch, und mit welchen Mengen?
+- Welche History-Einträge entstehen bei Start, regulärem Ende und Abbruch — und meldet
+  `MultiwaveBolusEnded` beim Abbruch die tatsächlich abgegebene Gesamtmenge inklusive des
+  Sofortanteils? Das ist der Wert, den `syncStopExtendedBolusWithPumpId(…, amount, …)` braucht.
+- Bleibt der bereits abgegebene Sofortanteil nach einem Abbruch korrekt in der History stehen?
 
 ### Angepasste Testreihenfolge
 
