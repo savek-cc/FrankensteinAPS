@@ -26,6 +26,7 @@ import org.mockito.Mock
 import org.mockito.kotlin.any
 import org.mockito.kotlin.anyOrNull
 import org.mockito.kotlin.never
+import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 
@@ -52,6 +53,8 @@ class KeepAliveWorkerTest : TestBaseWithProfile() {
         whenever(workManager.getWorkInfos(any())).thenReturn(listenableFuture)
         whenever(listenableFuture.get()).thenReturn(emptyList())
         whenever(workerParameters.inputData).thenReturn(workDataOf("schedule" to "KA_5"))
+        // Recovery state is static (a new worker instance is created for every run)
+        KeepAliveWorker.resetRecoveryState()
     }
 
     // Helper to create the worker instance directly
@@ -139,6 +142,109 @@ class KeepAliveWorkerTest : TestBaseWithProfile() {
         // Assert
         verify(commandQueue).readStatus(anyOrNull(), anyOrNull())
         verify(mockedRxBus, never()).send(any<EventProfileSwitchChanged>())
+        Unit
+    }
+
+    @Test
+    fun `checkPump recovers from a suspended pump before the status is outdated`() = runBlocking {
+        // Arrange: pump suspended itself (empty battery, occlusion, ...) 6 min ago
+        worker = createWorker()
+        whenever(loop.runningMode).thenReturn(RM.Mode.OPEN_LOOP)
+        whenever(profileFunction.getRequestedProfile()).thenReturn(profileSwitch)
+        whenever(profileFunction.getProfile()).thenReturn(validProfile)
+        whenever(commandQueue.isRunning(Command.CommandType.BASAL_PROFILE)).thenReturn(true)
+        testPumpPlugin.pumpSuspended = true
+        testPumpPlugin.lastData = now - T.mins(6).msecs()
+
+        // Act
+        worker.checkPump()
+
+        // Assert
+        verify(commandQueue).readStatus(anyOrNull(), anyOrNull())
+        Unit
+    }
+
+    @Test
+    fun `checkPump requests status right after an app start when the pump was never reached`() = runBlocking {
+        // Arrange: lastDataTime is 0 until the first connection of this app run
+        worker = createWorker()
+        whenever(loop.runningMode).thenReturn(RM.Mode.OPEN_LOOP)
+        whenever(profileFunction.getRequestedProfile()).thenReturn(profileSwitch)
+        whenever(profileFunction.getProfile()).thenReturn(validProfile)
+        whenever(commandQueue.isRunning(Command.CommandType.BASAL_PROFILE)).thenReturn(true)
+        testPumpPlugin.lastData = 0
+
+        // Act: the attempt goes out at once, the next one only after the first delay (5 min)
+        worker.checkPump()
+        whenever(dateUtil.now()).thenReturn(now + T.mins(3).msecs())
+        worker.checkPump()
+
+        // Assert
+        verify(commandQueue, times(1)).readStatus(anyOrNull(), anyOrNull())
+        Unit
+    }
+
+    @Test
+    fun `checkPump does not retry before the backoff delay elapsed`() = runBlocking {
+        // Arrange
+        worker = createWorker()
+        whenever(loop.runningMode).thenReturn(RM.Mode.OPEN_LOOP)
+        whenever(profileFunction.getRequestedProfile()).thenReturn(profileSwitch)
+        whenever(profileFunction.getProfile()).thenReturn(validProfile)
+        whenever(commandQueue.isRunning(Command.CommandType.BASAL_PROFILE)).thenReturn(true)
+        testPumpPlugin.lastData = now - T.mins(20).msecs()
+
+        // Act: first attempt goes out, the KeepAlive 5 min later must stay silent (2nd delay is 10 min)
+        worker.checkPump()
+        whenever(dateUtil.now()).thenReturn(now + T.mins(5).msecs())
+        worker.checkPump()
+
+        // Assert
+        verify(commandQueue, times(1)).readStatus(anyOrNull(), anyOrNull())
+        Unit
+    }
+
+    @Test
+    fun `checkPump retries after the backoff delay elapsed`() = runBlocking {
+        // Arrange
+        worker = createWorker()
+        whenever(loop.runningMode).thenReturn(RM.Mode.OPEN_LOOP)
+        whenever(profileFunction.getRequestedProfile()).thenReturn(profileSwitch)
+        whenever(profileFunction.getProfile()).thenReturn(validProfile)
+        whenever(commandQueue.isRunning(Command.CommandType.BASAL_PROFILE)).thenReturn(true)
+        testPumpPlugin.lastData = now - T.mins(20).msecs()
+
+        // Act
+        worker.checkPump()
+        whenever(dateUtil.now()).thenReturn(now + T.mins(11).msecs())
+        worker.checkPump()
+
+        // Assert
+        verify(commandQueue, times(2)).readStatus(anyOrNull(), anyOrNull())
+        Unit
+    }
+
+    @Test
+    fun `checkPump resets the backoff after a successful connection`() = runBlocking {
+        // Arrange
+        worker = createWorker()
+        whenever(loop.runningMode).thenReturn(RM.Mode.OPEN_LOOP)
+        whenever(profileFunction.getRequestedProfile()).thenReturn(profileSwitch)
+        whenever(profileFunction.getProfile()).thenReturn(validProfile)
+        whenever(commandQueue.isRunning(Command.CommandType.BASAL_PROFILE)).thenReturn(true)
+        testPumpPlugin.lastData = now - T.mins(20).msecs()
+
+        // Act: attempt, then the pump answers, then it goes quiet again
+        worker.checkPump()
+        whenever(dateUtil.now()).thenReturn(now + T.mins(5).msecs())
+        testPumpPlugin.lastData = now + T.mins(5).msecs()
+        worker.checkPump()
+        // 16 min after that connection the status is outdated again -> first delay (5 min) applies
+        whenever(dateUtil.now()).thenReturn(now + T.mins(21).msecs())
+        worker.checkPump()
+
+        // Assert
+        verify(commandQueue, times(2)).readStatus(anyOrNull(), anyOrNull())
         Unit
     }
 
