@@ -98,6 +98,80 @@ lässt sich die offene Frage empirisch klären. Vorschlag in der Reihenfolge ste
 Was dabei zu erwarten ist, wenn 3 negativ ausfällt: Der Abbruch bleibt Handarbeit an der Pumpe. Das
 ist kein Fehler der Implementierung, sondern eine Eigenschaft des Geräts.
 
+## 3a. Ist ein Multiwave mit Sofortanteil 0 dasselbe wie ein Extended Bolus?
+
+Am Protokoll: **fast** — der Unterschied sind zwei Bytes.
+
+`createCMDDeliverBolusPacket` (ApplicationLayer.kt:1096-1192) baut für alle drei Bolustypen dieselbe
+Payload-Struktur: Gesamtmenge, Dauer, Sofortanteil, jeweils zweimal (16-Bit-Integer und 32-Bit-Float).
+Unterschieden werden sie nur über zwei führende Typ-Bytes:
+
+| Typ | Bytes |
+|---|---|
+| STANDARD_BOLUS | `0x55, 0x59` |
+| EXTENDED_BOLUS | `0x65, 0x69` |
+| MULTIWAVE_BOLUS | `0xA5, 0xA9` |
+
+Beim EB wird `immediateBolusAmount` ohnehin auf 0 gezwungen (Z. 1107). Ein Multiwave mit
+`immediateBolusAmount = 0` erzeugt also eine Payload, die sich vom EB **ausschließlich** in diesen
+zwei Bytes unterscheidet. comboctl lässt das zu: geprüft wird nur `duration >= 15` und
+`immediateBolusAmount <= totalBolusAmount` — eine Untergrenze für den Sofortanteil gibt es nicht.
+
+Drei Stellen, an denen die Gleichsetzung trotzdem nicht trägt:
+
+**1. Historie und Event.** Die Pumpe schreibt unterschiedliche Einträge:
+`CMDHistoryEventDetail.ExtendedBolusStarted(totalBolusAmount, totalDurationMinutes, manual)` gegen
+`MultiwaveBolusStarted(totalBolusAmount, immediateBolusAmount, totalDurationMinutes, manual)`.
+comboctl prüft nach der Abgabe, dass im History-Delta genau der zum angeforderten Typ passende
+Eintrag steht (Pump.kt:1809-1835) — bei Abweichung `UnaccountedBolusDetectedException` bzw.
+`BolusNotDeliveredException`. Praktisch ist das ein kostenloser Testindikator: Normalisiert die
+Combo einen 0-Sofortanteil-Multiwave intern zu einem Extended Bolus, fliegt genau diese Exception.
+
+**2. AAPS bucht Multiwave-Boli derzeit gar nicht.** `ComboV2Plugin.handlePumpEvent` behandelt nur
+`ExtendedBolusStarted`/`ExtendedBolusEnded`; zu `MultiwaveBolusStarted`/`MultiwaveBolusEnded` gibt es
+im ganzen Plugin keine Zeile. Ein so abgegebener Bolus käme nicht in die Datenbank und damit nicht
+ins IOB. Bei diesem Weg müsste das ergänzt werden (Sofortanteil als Bolus, Restanteil als Extended
+Bolus buchen — die Felder dafür sind im History-Detail vorhanden).
+
+**3. Das Statuspolling — das ist das eigentliche praktische Risiko.** comboctl pollt den
+Bolus-Status nur für STANDARD und MULTIWAVE, ausdrücklich nicht für EXTENDED (Pump.kt:1676-1679:
+„since the extended bolus has no immediate delivery portion"). Bei einem Multiwave mit Sofortanteil 0
+ist `expectedImmediateAmount = 0`, und die Schleife bricht erst ab, wenn
+`deliveredAmount >= expectedImmediateAmount` (Z. 1726). Was die Pumpe dann meldet, entscheidet:
+
+| Meldung der Pumpe | `deliveredAmount` | Folge |
+|---|---|---|
+| `DELIVERED` | `0` | `0 >= 0` → Schleife bricht sofort ab, alles gut |
+| `DELIVERING` mit Restmenge R | `0 - R` (negativ) | Schleife pollt weiter — bis zu 15/30 Minuten, `deliverBolus` blockiert so lange |
+| `NOT_DELIVERING` | — (`else -> continue`) | Schleife läuft unbegrenzt weiter |
+
+Das ist im Test sofort sichtbar: `pumpIO.getCMDCurrentBolusDeliveryStatus()` direkt nach dem Start
+protokollieren. Falls die Pumpe `DELIVERING` oder `NOT_DELIVERING` meldet, braucht dieser Weg
+zusätzlich eine Sonderbehandlung in comboctl (Polling bei `immediateBolusAmount == 0` überspringen,
+analog zum EB-Zweig) — eine Zeile, aber sie muss bedacht werden.
+
+**Was der Weg bringen würde:** `CMD_CANCEL_BOLUS` akzeptiert `MULTI_WAVE (0xB7)` als Typ. Ob die
+Pumpe damit auch den verzögerten Anteil beendet oder nur den Sofortanteil (der hier 0 ist), steht
+nirgends — aber anders als beim reinen Extended Bolus gibt es überhaupt einen gültigen Cancel-Typ,
+der zum laufenden Bolus passt. Genau das macht deinen Vorschlag zum aussichtsreichsten Test.
+
+### Angepasste Testreihenfolge
+
+1. `deliverBolus(totalBolusAmount = x, immediateBolusAmount = 0, durationInMinutes = 15,
+   bolusType = MULTIWAVE_BOLUS)` auf der Prüfpumpe. Beobachten: (a) akzeptiert die Pumpe das
+   Kommando, (b) was meldet `getCMDCurrentBolusDeliveryStatus()` in den ersten Sekunden,
+   (c) welchen History-Eintrag schreibt sie (comboctl wirft bei Abweichung von selbst).
+2. Während der Bolus läuft: `createCMDCancelBolusPacket(CMDImmediateBolusType.MULTI_WAVE)` senden,
+   Antwort mit `parseCMDCancelBolusResponsePacket` auswerten, danach Hauptbildschirm prüfen
+   (`MainScreenContent.ExtendedOrMultiwaveBolus` verschwunden?) und History-Delta ansehen.
+3. Zum Vergleich dasselbe mit `STANDARD` gegen einen echten Extended Bolus — erwartet wird
+   `CMD_BOLUS_NOT_DELIVERING` (0xF60A) oder `CMD_WRONG_BOLUS_TYPE` (0xF606).
+4. Erst wenn 1 und 2 tragen: in `ComboV2Plugin` den EB als Multiwave mit Sofortanteil 0 abgeben,
+   `cancelExtendedBolus()` über den Multiwave-Cancel umsetzen und die Multiwave-Events buchen.
+
+Der Umweg über Pumpe-Stoppen (Abschnitt 3, Punkt 3/4) wird damit nur noch gebraucht, falls dieser
+Weg nicht trägt.
+
 ## 4. Stand heute im Fork
 
 `Capability.ExtendedBolus` ist gesetzt, also blenden die Oberflächen die EB-Bedienung ein — im Fork
