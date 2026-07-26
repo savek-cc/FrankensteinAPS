@@ -286,11 +286,14 @@ class KeepAliveWorker(
             recoveryAttempt = 0
         }
         if (!outdated && !pump.isSuspended()) return false
-        val quietFor = now - max(lastRecoveryAttempt, pump.lastDataTime)
-        if (quietFor < RECOVERY_DELAYS[min(recoveryAttempt, RECOVERY_DELAYS.size - 1)]) return false
+        // Stays 0 until the pump was reached for the first time (ie. right after an app start).
+        // The first attempt is due immediately then.
+        val since = max(lastRecoveryAttempt, pump.lastDataTime)
+        if (since != 0L && (now - since) < RECOVERY_DELAYS[min(recoveryAttempt, RECOVERY_DELAYS.size - 1)]) return false
         lastRecoveryAttempt = now
         recoveryAttempt++
-        aapsLogger.debug(LTag.CORE, "Pump recovery attempt $recoveryAttempt after ${T.msecs(quietFor).mins()} min without connection")
+        val quiet = if (since == 0L) "no connection since app start" else "${T.msecs(now - since).mins()} min without connection"
+        aapsLogger.debug(LTag.CORE, "Pump recovery attempt $recoveryAttempt, $quiet")
         return true
     }
 }

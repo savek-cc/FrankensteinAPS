@@ -165,6 +165,26 @@ class KeepAliveWorkerTest : TestBaseWithProfile() {
     }
 
     @Test
+    fun `checkPump requests status right after an app start when the pump was never reached`() = runBlocking {
+        // Arrange: lastDataTime is 0 until the first connection of this app run
+        worker = createWorker()
+        whenever(loop.runningMode).thenReturn(RM.Mode.OPEN_LOOP)
+        whenever(profileFunction.getRequestedProfile()).thenReturn(profileSwitch)
+        whenever(profileFunction.getProfile()).thenReturn(validProfile)
+        whenever(commandQueue.isRunning(Command.CommandType.BASAL_PROFILE)).thenReturn(true)
+        testPumpPlugin.lastData = 0
+
+        // Act: the attempt goes out at once, the next one only after the first delay (5 min)
+        worker.checkPump()
+        whenever(dateUtil.now()).thenReturn(now + T.mins(3).msecs())
+        worker.checkPump()
+
+        // Assert
+        verify(commandQueue, times(1)).readStatus(anyOrNull(), anyOrNull())
+        Unit
+    }
+
+    @Test
     fun `checkPump does not retry before the backoff delay elapsed`() = runBlocking {
         // Arrange
         worker = createWorker()
