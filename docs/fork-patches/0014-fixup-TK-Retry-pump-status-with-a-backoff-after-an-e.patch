@@ -1,0 +1,73 @@
+From b2ab9040cd01449e1f8ac54c8c87aa5f6938e048 Mon Sep 17 00:00:00 2001
+From: Savek-CC <me@home>
+Date: Sun, 26 Jul 2026 18:32:55 +0200
+Subject: [PATCH 14/14] fixup! TK: Retry pump status with a backoff after an
+ error or suspend
+
+Right after an app start pump.lastDataTime is still 0, so the elapsed time was
+measured against the epoch and logged as 'attempt 1 after 29751389 min without
+connection' (seen on device). Handle 'never reached in this app run' explicitly:
+the first attempt is due at once, the log says so, and the backoff applies from
+the second attempt on.
+---
+ .../app/aaps/receivers/KeepAliveWorker.kt     |  9 ++++++---
+ .../app/aaps/receivers/KeepAliveWorkerTest.kt | 20 +++++++++++++++++++
+ 2 files changed, 26 insertions(+), 3 deletions(-)
+
+diff --git a/app/src/main/kotlin/app/aaps/receivers/KeepAliveWorker.kt b/app/src/main/kotlin/app/aaps/receivers/KeepAliveWorker.kt
+index 81649fca68..5cfe22b10f 100644
+--- a/app/src/main/kotlin/app/aaps/receivers/KeepAliveWorker.kt
++++ b/app/src/main/kotlin/app/aaps/receivers/KeepAliveWorker.kt
+@@ -286,11 +286,14 @@ class KeepAliveWorker(
+             recoveryAttempt = 0
+         }
+         if (!outdated && !pump.isSuspended()) return false
+-        val quietFor = now - max(lastRecoveryAttempt, pump.lastDataTime)
+-        if (quietFor < RECOVERY_DELAYS[min(recoveryAttempt, RECOVERY_DELAYS.size - 1)]) return false
++        // Stays 0 until the pump was reached for the first time (ie. right after an app start).
++        // The first attempt is due immediately then.
++        val since = max(lastRecoveryAttempt, pump.lastDataTime)
++        if (since != 0L && (now - since) < RECOVERY_DELAYS[min(recoveryAttempt, RECOVERY_DELAYS.size - 1)]) return false
+         lastRecoveryAttempt = now
+         recoveryAttempt++
+-        aapsLogger.debug(LTag.CORE, "Pump recovery attempt $recoveryAttempt after ${T.msecs(quietFor).mins()} min without connection")
++        val quiet = if (since == 0L) "no connection since app start" else "${T.msecs(now - since).mins()} min without connection"
++        aapsLogger.debug(LTag.CORE, "Pump recovery attempt $recoveryAttempt, $quiet")
+         return true
+     }
+ }
+\ No newline at end of file
+diff --git a/app/src/test/kotlin/app/aaps/receivers/KeepAliveWorkerTest.kt b/app/src/test/kotlin/app/aaps/receivers/KeepAliveWorkerTest.kt
+index 61bf003a7e..348e53ecab 100644
+--- a/app/src/test/kotlin/app/aaps/receivers/KeepAliveWorkerTest.kt
++++ b/app/src/test/kotlin/app/aaps/receivers/KeepAliveWorkerTest.kt
+@@ -164,6 +164,26 @@ class KeepAliveWorkerTest : TestBaseWithProfile() {
+         Unit
+     }
+ 
++    @Test
++    fun `checkPump requests status right after an app start when the pump was never reached`() = runBlocking {
++        // Arrange: lastDataTime is 0 until the first connection of this app run
++        worker = createWorker()
++        whenever(loop.runningMode).thenReturn(RM.Mode.OPEN_LOOP)
++        whenever(profileFunction.getRequestedProfile()).thenReturn(profileSwitch)
++        whenever(profileFunction.getProfile()).thenReturn(validProfile)
++        whenever(commandQueue.isRunning(Command.CommandType.BASAL_PROFILE)).thenReturn(true)
++        testPumpPlugin.lastData = 0
++
++        // Act: the attempt goes out at once, the next one only after the first delay (5 min)
++        worker.checkPump()
++        whenever(dateUtil.now()).thenReturn(now + T.mins(3).msecs())
++        worker.checkPump()
++
++        // Assert
++        verify(commandQueue, times(1)).readStatus(anyOrNull(), anyOrNull())
++        Unit
++    }
++
+     @Test
+     fun `checkPump does not retry before the backoff delay elapsed`() = runBlocking {
+         // Arrange
+-- 
+2.55.0
+

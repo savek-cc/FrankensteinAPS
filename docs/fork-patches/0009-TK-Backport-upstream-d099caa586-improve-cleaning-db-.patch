@@ -1,0 +1,55 @@
+From ec1076b1c78fe207e270ba7492cf635386baf9b5 Mon Sep 17 00:00:00 2001
+From: Savek-CC <me@home>
+Date: Sun, 26 Jul 2026 18:01:24 +0200
+Subject: [PATCH 09/14] TK: Backport upstream d099caa586 (improve cleaning db
+ logic)
+
+Cleanup deleted the still active permanent records of profileSwitches and
+runningModes once they were older than the keep window (6 months), and dropped
+the last permanent effectiveProfileSwitch when only expired temporary ones were
+left inside the window.
+
+Losing the permanent profile switch is fatal for KeepAliveWorker.checkPump():
+it returns early when profileFunction.getRequestedProfile() is null, so neither
+the periodic status read nor the pump unreachable alarm run anymore.
+
+Ported by hand, the upstream commit does not apply to this base (its EPS hunk
+expects the migrated suspend DAO, its RunningMode hunk modifies a guard that
+does not exist here yet).
+---
+ .../main/kotlin/app/aaps/database/AppRepository.kt   | 12 ++++++++----
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/database/impl/src/main/kotlin/app/aaps/database/AppRepository.kt b/database/impl/src/main/kotlin/app/aaps/database/AppRepository.kt
+index 18f1cb0afd..f1c8873d64 100644
+--- a/database/impl/src/main/kotlin/app/aaps/database/AppRepository.kt
++++ b/database/impl/src/main/kotlin/app/aaps/database/AppRepository.kt
+@@ -92,17 +92,21 @@ class AppRepository @Inject internal constructor(
+         removed.add(Pair("Carbs", database.carbsDao.deleteOlderThan(than)))
+         removed.add(Pair("TemporaryTarget", database.temporaryTargetDao.deleteOlderThan(than)))
+         removed.add(Pair("BolusCalculatorResult", database.bolusCalculatorResultDao.deleteOlderThan(than)))
+-        // keep at least one EPS
+-        if (database.effectiveProfileSwitchDao.getEffectiveProfileSwitchDataFromTime(than + 1).blockingGet().isNotEmpty())
++        // keep at least one permanent EPS (don't delete if only expired temporaries exist within window)
++        if (database.effectiveProfileSwitchDao.getEffectiveProfileSwitchDataFromTime(than + 1).blockingGet().any { it.originalDuration == 0L })
+             removed.add(Pair("EffectiveProfileSwitch", database.effectiveProfileSwitchDao.deleteOlderThan(than)))
+-        removed.add(Pair("ProfileSwitch", database.profileSwitchDao.deleteOlderThan(than)))
++        // keep at least one permanent PS
++        if (database.profileSwitchDao.getProfileSwitchDataFromTime(than + 1).blockingGet().any { it.duration == 0L })
++            removed.add(Pair("ProfileSwitch", database.profileSwitchDao.deleteOlderThan(than)))
+         removed.add(Pair("ApsResult", database.apsResultDao.deleteOlderThan(than)))
+         // keep version history database.versionChangeDao.deleteOlderThan(than)
+         removed.add(Pair("UserEntry", database.userEntryDao.deleteOlderThan(than)))
+         removed.add(Pair("PreferenceChange", database.preferenceChangeDao.deleteOlderThan(than)))
+         // keep foods database.foodDao.deleteOlderThan(than)
+         removed.add(Pair("DeviceStatus", database.deviceStatusDao.deleteOlderThan(than)))
+-        removed.add(Pair("RunningMode", database.runningModeDao.deleteOlderThan(than)))
++        // keep at least one permanent RM (don't delete if only expired temporaries exist within window)
++        if (database.runningModeDao.getRunningModeDataFromTime(than + 1).blockingGet().any { it.duration == 0L })
++            removed.add(Pair("RunningMode", database.runningModeDao.deleteOlderThan(than)))
+         removed.add(Pair("HeartRate", database.heartRateDao.deleteOlderThan(than)))
+         removed.add(Pair("StepsCount", database.stepsCountDao.deleteOlderThan(than)))
+ 
+-- 
+2.55.0
+
