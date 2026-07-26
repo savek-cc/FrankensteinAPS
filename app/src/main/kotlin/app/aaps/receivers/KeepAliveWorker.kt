@@ -23,6 +23,7 @@ import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.logging.LTag
 import app.aaps.core.interfaces.plugin.ActivePlugin
 import app.aaps.core.interfaces.profile.ProfileFunction
+import app.aaps.core.interfaces.pump.Pump
 import app.aaps.core.interfaces.queue.Command
 import app.aaps.core.interfaces.queue.CommandQueue
 import app.aaps.core.interfaces.resources.ResourceHelper
@@ -41,6 +42,8 @@ import kotlinx.coroutines.Dispatchers
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 class KeepAliveWorker(
     private val context: Context,
@@ -68,9 +71,28 @@ class KeepAliveWorker(
         private val STATUS_UPDATE_FREQUENCY = T.mins(15).msecs()
         private const val IOB_UPDATE_FREQUENCY_IN_MINUTES = 5L
 
+        /**
+         * Delays between recovery attempts once the pump stopped answering or suspended itself.
+         * The last value is used for all further attempts.
+         */
+        private val RECOVERY_DELAYS = longArrayOf(T.mins(5).msecs(), T.mins(10).msecs(), T.mins(15).msecs(), T.mins(30).msecs())
+
         private var lastReadStatus: Long = 0
         private var lastRun: Long = 0
         private var lastIobUpload: Long = 0
+
+        // Recovery state. Static because WorkManager creates a new worker instance for every run.
+        private var lastSeenConnection: Long = 0
+        private var lastRecoveryAttempt: Long = 0
+        private var recoveryAttempt: Int = 0
+
+        @VisibleForTesting
+        fun resetRecoveryState() {
+            lastSeenConnection = 0
+            lastRecoveryAttempt = 0
+            recoveryAttempt = 0
+            lastReadStatus = 0
+        }
 
         const val KA_0 = "KeepAlive"
         private const val KA_5 = "KeepAlive_5"
@@ -232,12 +254,43 @@ class KeepAliveWorker(
             // do nothing if pump is disconnected
         } else if (profileSwitchNeeded) {
             rxBus.send(EventProfileSwitchChanged())
-        } else if (isStatusOutdated && !pump.isBusy()) {
+        } else if (!pump.isBusy() && isRecoveryDue(pump, isStatusOutdated || isBasalOutdated, now)) {
             lastReadStatus = now
-            commandQueue.readStatus(rh.gs(app.aaps.core.ui.R.string.keepalive_status_outdated), null)
-        } else if (isBasalOutdated && !pump.isBusy()) {
-            lastReadStatus = now
-            commandQueue.readStatus(rh.gs(app.aaps.core.ui.R.string.keepalive_basal_outdated), null)
+            val reason = when {
+                !isStatusOutdated && isBasalOutdated -> app.aaps.core.ui.R.string.keepalive_basal_outdated
+                else                                 -> app.aaps.core.ui.R.string.keepalive_status_outdated
+            }
+            commandQueue.readStatus(rh.gs(reason), null)
         }
+    }
+
+    /**
+     * Decide whether a status read should be requested now.
+     *
+     * The pump is contacted by the loop itself as long as it accepts commands. If it stopped doing
+     * so (pump error, empty battery, occlusion, out of range) nothing else would ever reconnect, so
+     * the status is requested here with increasing delays (see [RECOVERY_DELAYS]) until the pump
+     * answers again. Every attempt is a single [CommandQueue.readStatus]; the connection retrying
+     * inside one attempt is done by the queue.
+     *
+     * @param pump active pump
+     * @param outdated true if the pump status or the basal rate is not up to date anymore
+     * @param now current time
+     * @return true if a status read should be requested (and an attempt is consumed)
+     */
+    private fun isRecoveryDue(pump: Pump, outdated: Boolean, now: Long): Boolean {
+        // Pump answered in the meantime -> start over
+        if (pump.lastDataTime != lastSeenConnection) {
+            lastSeenConnection = pump.lastDataTime
+            lastRecoveryAttempt = 0
+            recoveryAttempt = 0
+        }
+        if (!outdated && !pump.isSuspended()) return false
+        val quietFor = now - max(lastRecoveryAttempt, pump.lastDataTime)
+        if (quietFor < RECOVERY_DELAYS[min(recoveryAttempt, RECOVERY_DELAYS.size - 1)]) return false
+        lastRecoveryAttempt = now
+        recoveryAttempt++
+        aapsLogger.debug(LTag.CORE, "Pump recovery attempt $recoveryAttempt after ${T.msecs(quietFor).mins()} min without connection")
+        return true
     }
 }
