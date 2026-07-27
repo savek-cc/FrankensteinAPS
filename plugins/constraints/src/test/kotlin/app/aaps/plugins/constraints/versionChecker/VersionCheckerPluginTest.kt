@@ -20,7 +20,6 @@ class VersionCheckerPluginTest : TestBaseWithProfile() {
     @Test
     fun applyMaxIOBConstraintsTest() = runTest {
         versionCheckerPlugin = VersionCheckerPlugin(aapsLogger, rh, preferences, versionCheckerUtils, config, dateUtil)
-        whenever(rh.gs(R.string.application_expired)).thenReturn("")
 
         // No expiration
         whenever(preferences.get(LongComposedKey.AppExpiration, config.VERSION_NAME)).thenReturn(0)
@@ -32,9 +31,10 @@ class VersionCheckerPluginTest : TestBaseWithProfile() {
         val c2 = ConstraintObject(Double.MAX_VALUE, aapsLogger)
         assertThat(versionCheckerPlugin.applyMaxIOBConstraints(c2).value()).isEqualTo(Double.MAX_VALUE)
 
-        // Expired
+        // Expired - upstream would cap max IOB at 0 here. This build does not let the expiry date
+        // switch off dosing; see VersionCheckerPlugin.applyMaxIOBConstraints().
         whenever(preferences.get(LongComposedKey.AppExpiration, config.VERSION_NAME)).thenReturn(now - 1000)
         val c3 = ConstraintObject(Double.MAX_VALUE, aapsLogger)
-        assertThat(versionCheckerPlugin.applyMaxIOBConstraints(c3).value()).isEqualTo(0.0)
+        assertThat(versionCheckerPlugin.applyMaxIOBConstraints(c3).value()).isEqualTo(Double.MAX_VALUE)
     }
 }
