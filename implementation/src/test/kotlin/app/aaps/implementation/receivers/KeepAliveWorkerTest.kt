@@ -68,6 +68,8 @@ class KeepAliveWorkerTest : TestBaseWithProfile() {
         // that survives between test methods in the same JVM. Reset it before each test so the cases
         // are deterministic and order-independent.
         resetWorkerStaticState()
+        // Recovery state is static for the same reason.
+        KeepAliveWorker.resetRecoveryState()
         // Configure mocks provided by the base class or declared here.
         whenever(iobCobCalculator.ads).thenReturn(ads)
         whenever(workManager.getWorkInfos(any())).thenReturn(listenableFuture)
@@ -248,17 +250,144 @@ class KeepAliveWorkerTest : TestBaseWithProfile() {
     }
 
     @Test
-    fun `checkPump does nothing when there is no requested profile`() = runTest {
-        // Arrange
+    fun `checkPump requests status even if no profile switch record exists`() = runTest {
+        // Arrange – profile switch record is missing (ie. cleaned up from the database). Status
+        // reading has to keep working; only the profile comparison depends on that record.
         worker = createWorker()
+        whenever(loop.runningMode()).thenReturn(RM.Mode.OPEN_LOOP)
         whenever(profileFunction.getRequestedProfile()).thenReturn(null)
+        whenever(profileFunction.getProfile()).thenReturn(effectiveProfile)
+        testPumpPlugin.lastData = now - T.mins(20).msecs()
 
         // Act
         worker.checkPump()
 
         // Assert
-        verify(commandQueue, never()).readStatus(any())
+        verify(commandQueue).readStatus(anyOrNull())
         verify(mockedRxBus, never()).send(any<EventProfileChangeRequested>())
+    }
+
+    @Test
+    fun `checkPump recovers from a suspended pump before the status is outdated`() = runTest {
+        // Arrange – pump suspended itself (empty battery, occlusion, ...) 6 min ago, so the 15 min
+        // staleness threshold has not been reached yet
+        worker = createWorker()
+        whenever(loop.runningMode()).thenReturn(RM.Mode.OPEN_LOOP)
+        whenever(profileFunction.getRequestedProfile()).thenReturn(profileSwitch)
+        whenever(profileFunction.getProfile()).thenReturn(effectiveProfile)
+        whenever(commandQueue.isRunning(Command.CommandType.BASAL_PROFILE)).thenReturn(true)
+        testPumpPlugin.pumpSuspended = true
+        testPumpPlugin.lastData = now - T.mins(6).msecs()
+
+        // Act
+        worker.checkPump()
+
+        // Assert
+        verify(commandQueue).readStatus(anyOrNull())
+    }
+
+    @Test
+    fun `checkPump does not retry before the backoff delay elapsed`() = runTest {
+        // Arrange
+        worker = createWorker()
+        whenever(loop.runningMode()).thenReturn(RM.Mode.OPEN_LOOP)
+        whenever(profileFunction.getRequestedProfile()).thenReturn(profileSwitch)
+        whenever(profileFunction.getProfile()).thenReturn(effectiveProfile)
+        whenever(commandQueue.isRunning(Command.CommandType.BASAL_PROFILE)).thenReturn(true)
+        testPumpPlugin.lastData = now - T.mins(20).msecs()
+
+        // Act – first attempt goes out, the KeepAlive 5 min later must stay silent (2nd delay is 10 min)
+        worker.checkPump()
+        whenever(dateUtil.now()).thenReturn(now + T.mins(5).msecs())
+        worker.checkPump()
+
+        // Assert
+        verify(commandQueue, times(1)).readStatus(anyOrNull())
+    }
+
+    @Test
+    fun `checkPump retries after the backoff delay elapsed`() = runTest {
+        // Arrange
+        worker = createWorker()
+        whenever(loop.runningMode()).thenReturn(RM.Mode.OPEN_LOOP)
+        whenever(profileFunction.getRequestedProfile()).thenReturn(profileSwitch)
+        whenever(profileFunction.getProfile()).thenReturn(effectiveProfile)
+        whenever(commandQueue.isRunning(Command.CommandType.BASAL_PROFILE)).thenReturn(true)
+        testPumpPlugin.lastData = now - T.mins(20).msecs()
+
+        // Act
+        worker.checkPump()
+        whenever(dateUtil.now()).thenReturn(now + T.mins(11).msecs())
+        worker.checkPump()
+
+        // Assert
+        verify(commandQueue, times(2)).readStatus(anyOrNull())
+    }
+
+    @Test
+    fun `checkPump resets the backoff after a successful connection`() = runTest {
+        // Arrange
+        worker = createWorker()
+        whenever(loop.runningMode()).thenReturn(RM.Mode.OPEN_LOOP)
+        whenever(profileFunction.getRequestedProfile()).thenReturn(profileSwitch)
+        whenever(profileFunction.getProfile()).thenReturn(effectiveProfile)
+        whenever(commandQueue.isRunning(Command.CommandType.BASAL_PROFILE)).thenReturn(true)
+        // Verify by reason: the middle cycle reaches the pump, so it goes down the basal branch.
+        // Only the recovery reads are counted here.
+        whenever(rh.gs(app.aaps.core.ui.R.string.keepalive_status_outdated)).thenReturn("status outdated")
+        testPumpPlugin.lastData = now - T.mins(20).msecs()
+
+        // Act – attempt, then the pump answers, then it goes quiet again
+        worker.checkPump()
+        whenever(dateUtil.now()).thenReturn(now + T.mins(5).msecs())
+        testPumpPlugin.lastData = now + T.mins(5).msecs()
+        worker.checkPump()
+        // 16 min after that connection the status is outdated again -> first delay (5 min) applies
+        whenever(dateUtil.now()).thenReturn(now + T.mins(21).msecs())
+        worker.checkPump()
+
+        // Assert – the second recovery read was not held back by the 10 min delay of attempt 2
+        verify(commandQueue, times(2)).readStatus("status outdated")
+    }
+
+    @Test
+    fun `checkPump requests status right after an app start when the pump was never reached`() = runTest {
+        // Arrange – lastDataTime is 0 until the first connection of this app run
+        worker = createWorker()
+        whenever(loop.runningMode()).thenReturn(RM.Mode.OPEN_LOOP)
+        whenever(profileFunction.getRequestedProfile()).thenReturn(profileSwitch)
+        whenever(profileFunction.getProfile()).thenReturn(effectiveProfile)
+        whenever(commandQueue.isRunning(Command.CommandType.BASAL_PROFILE)).thenReturn(true)
+        testPumpPlugin.lastData = 0
+
+        // Act – the attempt goes out at once, the next one only after the first delay (5 min)
+        worker.checkPump()
+        whenever(dateUtil.now()).thenReturn(now + T.mins(3).msecs())
+        worker.checkPump()
+
+        // Assert
+        verify(commandQueue, times(1)).readStatus(anyOrNull())
+    }
+
+    @Test
+    fun `checkPump keeps reading the basal rate of a reachable pump without backoff`() = runTest {
+        // Arrange – pump answers on every cycle but runs a basal rate the profile does not ask for.
+        // That is not a connection problem, so the backoff must not swallow the read.
+        worker = createWorker()
+        whenever(loop.runningMode()).thenReturn(RM.Mode.OPEN_LOOP)
+        whenever(profileFunction.getRequestedProfile()).thenReturn(profileSwitch)
+        whenever(profileFunction.getProfile()).thenReturn(effectiveProfile)
+        whenever(commandQueue.isRunning(Command.CommandType.BASAL_PROFILE)).thenReturn(true)
+        testPumpPlugin.lastData = now
+
+        // Act – two consecutive cycles, pump answered in between each
+        worker.checkPump()
+        whenever(dateUtil.now()).thenReturn(now + T.mins(5).msecs())
+        testPumpPlugin.lastData = now + T.mins(5).msecs()
+        worker.checkPump()
+
+        // Assert
+        verify(commandQueue, times(2)).readStatus(anyOrNull())
     }
 
     @Test
