@@ -480,6 +480,54 @@ Kurzfassung:
 
 ---
 
+## N — Pumpe stoppen und starten im Combo-Treiber
+
+**Patches:** `driver-stop-start/0001` bis `0003` (eigene Serie, Basis `origin/dev`)
+
+### Wirkung
+
+Der Treiber kann die Combo jetzt selbst stoppen und wieder starten:
+
+- `ParsedScreen.StartPumpMenuScreen` — der Bildschirm „Pumpe starten", der nur im gestoppten Zustand
+  existiert. Er hat kein eigenes Symbol (Titeltext plus großes Häkchen), deshalb erkennt ihn der
+  `MenuScreenParser` am abschließenden `LargeSymbol(CHECK)`; das bleibt sprachunabhängig, ohne dass
+  Titel-Übersetzungen für alle Pumpensprachen nötig wären.
+- Beide Menüs sind Knoten im RT-Navigationsgraphen, mit Gültigkeitsbedingungen: Stopp-Menü nur bei
+  laufender Pumpe, Start-Menü nur im gestoppten Zustand.
+- `Pump.stopPump()` / `Pump.startPump()` navigieren zum jeweiligen Eintrag, bestätigen mit CHECK,
+  warten auf den Hauptbildschirm und **verifizieren den neuen Zustand**, statt dem Tastendruck zu
+  vertrauen. Der Stopp-Zustand wird als 0 %-TBR vom Typ `COMBO_STOPPED` gebucht — die Kette bis
+  AAPS existiert bereits (`ComboV2Plugin.kt:2010` bildet ihn auf
+  `PumpSync.TemporaryBasalType.PUMP_SUSPEND` ab).
+
+### Intention
+
+Ein laufender Extended oder Multiwave Bolus lässt sich **nur** durch Stoppen der Pumpe beenden;
+`CMD_CANCEL_BOLUS` greift ausschließlich am Sofortanteil (am Gerät gemessen, siehe
+EXTENDED-BOLUS-MESSUNG.md). Damit ist das die Voraussetzung für ein funktionierendes
+`cancelExtendedBolus()` in AAPS.
+
+### Zwei Fallstricke, die im Code adressiert sind
+
+1. **Alarm-Retry:** `executeCommand()` quittiert Alarme und **wiederholt danach den Kommandoblock**.
+   Beim Stoppen mit laufendem Bolus erscheint W8 („Bolus abgebrochen"), bei laufender TBR zusätzlich
+   W6. Deshalb liest `switchPumpRunningState()` den Zustand zu Beginn jedes Durchlaufs frisch von
+   der Pumpe — sonst sucht der zweite Durchlauf ein Menü, das im neuen Zustand nicht mehr existiert
+   (`CouldNotFindRTScreenException`).
+2. **Buchung am Zustand statt am Codepfad:** Die 0 %-TBR wird über
+   `syncTbrStateWithPumpRunningState()` idempotent abgeglichen. In der ersten Fassung hing sie am
+   Zweig, der den Wechsel ausgeführt hatte — nach dem Retry blieb sie aus, und die Pumpe gab kein
+   Insulin ab, ohne dass das gebucht war.
+
+### Was AAPS damit noch machen muss
+
+- `cancelExtendedBolus()` auf `stopPump()` + `startPump()` legen.
+- Nach dem Abbruch die TBR neu setzen — die Pumpe stellt sie nicht wieder her (gemessen).
+- `MultiwaveBolusStarted`/`MultiwaveBolusEnded` im `ComboV2Plugin` behandeln; bisher gibt es dazu
+  keine Zeile, ein so abgegebener Bolus käme nicht in die Datenbank.
+- `syncStopExtendedBolusWithPumpId` mit der tatsächlich abgegebenen Menge aus dem End-Event füttern
+  (Feature A).
+
 ## Querschnitt: was zusammen wirkt
 
 Beim Neuaufbau lohnt es, diese Kopplungen als Ganzes zu betrachten statt patchweise:

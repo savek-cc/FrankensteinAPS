@@ -35,6 +35,28 @@ andocken*.
 | `0013-…` | `46bf97a48d` | Design-Doku zu 0009–0012 | nein |
 | `0014-…` | `b2ab9040cd` | `fixup!` zu 0011 (Logmeldung nach App-Start) | nein |
 
+## Zweite Serie: Combo-Treiber, Basis `origin/dev`
+
+Im Unterverzeichnis `driver-stop-start/` liegt eine **eigene** Patch-Serie mit anderer Basis. Sie
+setzt nicht auf `651234264c` auf, sondern auf den aktuellen `origin/dev` (`bac03ac6f2`,
+2026-07-26), weil sie den in AAPS eingebetteten comboctl-Treiber erweitert.
+
+| Datei | Commit | Inhalt |
+|---|---|---|
+| `driver-stop-start/0001-…` | `4a000b098f` | Parser erkennt den „Pumpe starten"-Bildschirm (+ Testframe von echter Pumpe) |
+| `driver-stop-start/0002-…` | `2099a1781f` | Stopp- und Start-Menü als Knoten im RT-Navigationsgraphen |
+| `driver-stop-start/0003-…` | `a88871666a` | `Pump.stopPump()` und `Pump.startPump()` |
+
+Zusammen 5 Dateien, +193 Zeilen, **keine gelöschten Zeilen** — rein additiv, damit ein Rebase nur
+dort hakt, wo upstream dieselbe Stelle anfasst. Die drei Bereiche sind voneinander unabhängig.
+
+Warum das nicht upstream zu `dv1/ComboCtl` geht: Dieses Repo ist seit **2023-03-13** unverändert,
+während die in AAPS eingebettete Kopie seither **52 Commits** bekommen hat (u. a. „PumpIo race fix",
+„ComboV2: fix disconnect", suspend-Migration). Der lebende Treiber steckt in AAPS; der Fork
+`savek-cc/ComboCtl` (Branches `stop-start-pump`, `bench/bolus-cancel-test`) ist nur noch Archiv.
+
+Messgrundlage und Begründung der Entwurfsentscheidungen: [EXTENDED-BOLUS-MESSUNG.md](EXTENDED-BOLUS-MESSUNG.md).
+
 `0009`–`0014` sind vom 2026-07-26 und in
 [`../superpowers/specs/2026-07-26-pump-recovery-after-error-design.md`](../superpowers/specs/2026-07-26-pump-recovery-after-error-design.md)
 bereits ausführlich beschrieben; FEATURES.md fasst sie nur ein.
