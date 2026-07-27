@@ -149,6 +149,8 @@ sealed class ParsedScreen(val isBlinkedOut: Boolean = false) {
     object TimeAndDateSettingsMenuScreen : ParsedScreen()
     object StandardBolusMenuScreen : ParsedScreen()
     object StopPumpMenuScreen : ParsedScreen()
+    // Only reachable while the Combo is stopped; this is the menu entry that starts the pump again.
+    object StartPumpMenuScreen : ParsedScreen()
     object TemporaryBasalRateMenuScreen : ParsedScreen()
     object TherapySettingsMenuScreen : ParsedScreen()
 
@@ -1170,6 +1172,10 @@ class MenuScreenParser : Parser() {
             Glyph.LargeSymbol(LargeSymbol.REMINDER_SETTINGS)  -> return ParseResult.Value(ParsedScreen.ReminderSettingsMenuScreen)
             Glyph.LargeSymbol(LargeSymbol.CALENDAR_AND_CLOCK) -> return ParseResult.Value(ParsedScreen.TimeAndDateSettingsMenuScreen)
             Glyph.LargeSymbol(LargeSymbol.STOP)               -> return ParseResult.Value(ParsedScreen.StopPumpMenuScreen)
+            // The "start pump" menu entry has no symbol of its own; it shows the localized title
+            // ("PUMPE STARTEN", "START PUMP", ...) and a large check mark. Matching the check mark
+            // keeps the detection language independent, and no other menu screen ends with it.
+            Glyph.LargeSymbol(LargeSymbol.CHECK)              -> return ParseResult.Value(ParsedScreen.StartPumpMenuScreen)
             Glyph.LargeSymbol(LargeSymbol.TBR)                -> return ParseResult.Value(ParsedScreen.TemporaryBasalRateMenuScreen)
             Glyph.LargeSymbol(LargeSymbol.THERAPY_SETTINGS)   -> return ParseResult.Value(ParsedScreen.TherapySettingsMenuScreen)
             else                                              -> Unit
