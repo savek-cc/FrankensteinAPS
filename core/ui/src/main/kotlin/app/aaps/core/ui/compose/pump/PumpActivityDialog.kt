@@ -33,6 +33,7 @@ import androidx.compose.ui.window.DialogProperties
 import app.aaps.core.interfaces.pump.BolusProgressState
 import app.aaps.core.ui.R
 import app.aaps.core.ui.compose.AapsSpacing
+import app.aaps.core.ui.compose.AapsTheme
 
 /**
  * Shared pump activity dialog showing pump status, queue info, and bolus progress.
@@ -193,6 +194,7 @@ private fun BolusProgressSection(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(AapsSpacing.medium),
+                color = AapsTheme.generalColors.bolusProgress,
                 trackColor = MaterialTheme.colorScheme.surfaceVariant,
             )
         } else {
@@ -201,6 +203,7 @@ private fun BolusProgressSection(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(AapsSpacing.medium),
+                color = AapsTheme.generalColors.bolusProgress,
                 trackColor = MaterialTheme.colorScheme.surfaceVariant,
             )
         }
