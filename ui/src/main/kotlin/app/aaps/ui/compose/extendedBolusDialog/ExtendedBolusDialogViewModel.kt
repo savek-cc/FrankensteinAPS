@@ -65,8 +65,9 @@ class ExtendedBolusDialogViewModel @Inject constructor(
         val pumpDescription = activePlugin.activePump.pumpDescription
         val maxInsulin = constraintChecker.getMaxExtendedBolusAllowed().value()
 
-        // Default to showing the loop-stop warning until the async closed-loop check resolves, so a closed-loop user
-        // can't briefly see the form and start typing before the warning gate appears.
+        // The loop-stop warning is off here: with this setup an extended bolus is the normal way to
+        // deliver a meal bolus (see CommandQueueImplementation.extendedBolusDurationFor()), so the
+        // warning would appear on nearly every bolus and stop being a warning.
         _uiState.update {
             ExtendedBolusDialogUiState(
                 insulin = pumpDescription.extendedBolusMinAmount,
@@ -76,18 +77,9 @@ class ExtendedBolusDialogViewModel @Inject constructor(
                 extendedStep = pumpDescription.extendedBolusStep,
                 extendedDurationStep = pumpDescription.extendedBolusDurationStep,
                 extendedMaxDuration = pumpDescription.extendedBolusMaxDuration,
-                showLoopStopWarning = true,
-                loopStopWarningAccepted = false,
+                showLoopStopWarning = false,
+                loopStopWarningAccepted = true,
             )
-        }
-        viewModelScope.launch {
-            val isClosedLoop = constraintChecker.isClosedLoopAllowed().value()
-            _uiState.update {
-                it.copy(
-                    showLoopStopWarning = isClosedLoop,
-                    loopStopWarningAccepted = !isClosedLoop
-                )
-            }
         }
     }
 
