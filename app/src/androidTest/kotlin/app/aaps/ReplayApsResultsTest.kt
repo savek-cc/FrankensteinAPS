@@ -695,7 +695,6 @@ class ReplayApsResultsTest : HiltInstrumentedTest() {
             enableSMB_after_carbs = determineBasalResult.profile.getBoolean("enableSMB_after_carbs"),
             maxSMBBasalMinutes = determineBasalResult.profile.getInt("maxSMBBasalMinutes"),
             maxUAMSMBBasalMinutes = determineBasalResult.profile.getInt("maxUAMSMBBasalMinutes"),
-            smbPercent = determineBasalResult.profile.getInt("smbPercent"),
             bolus_increment = determineBasalResult.profile.getDouble("bolus_increment"),
             carbsReqThreshold = determineBasalResult.profile.getInt("carbsReqThreshold"),
             current_basal = determineBasalResult.profile.getDouble("current_basal"),
