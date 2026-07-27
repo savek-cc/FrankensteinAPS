@@ -1,0 +1,53 @@
+From 2099a1781f6917fd40a0ec819abd5de55fb7943d Mon Sep 17 00:00:00 2001
+From: Savek-CC <me@home>
+Date: Mon, 27 Jul 2026 11:56:24 +0200
+Subject: [PATCH 2/3] Combo: Make the stop and start pump menus navigable
+
+Adds both menu entries as nodes to the RT navigation graph. Which of the two
+exists depends on the pump state, so the edges carry the matching validity
+conditions: the stop entry only while the Combo runs, the start entry only while
+it is stopped.
+
+Purely additive - existing paths are unaffected, since navigation to other
+screens passes through these entries the same way it did before.
+---
+ .../nightscout/comboctl/main/RTNavigation.kt     | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/main/RTNavigation.kt b/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/main/RTNavigation.kt
+index 05def44f1c..20d3bc5785 100644
+--- a/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/main/RTNavigation.kt
++++ b/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/main/RTNavigation.kt
+@@ -80,6 +80,8 @@ internal val rtNavigationGraph = Graph<KClassifier, RTEdgeValue>().apply {
+     // to connect them below.
+     val mainNode = node(ParsedScreen.MainScreen::class)
+     val quickinfoNode = node(ParsedScreen.QuickinfoMainScreen::class)
++    val stopPumpMenuNode = node(ParsedScreen.StopPumpMenuScreen::class)
++    val startPumpMenuNode = node(ParsedScreen.StartPumpMenuScreen::class)
+     val tbrMenuNode = node(ParsedScreen.TemporaryBasalRateMenuScreen::class)
+     val tbrPercentageNode = node(ParsedScreen.TemporaryBasalRatePercentageScreen::class)
+     val tbrDurationNode = node(ParsedScreen.TemporaryBasalRateDurationScreen::class)
+@@ -103,6 +105,20 @@ internal val rtNavigationGraph = Graph<KClassifier, RTEdgeValue>().apply {
+     // Main screen and quickinfo.
+     connectBidirectionally(RTEdgeValue(RTNavigationButton.CHECK), RTEdgeValue(RTNavigationButton.BACK), mainNode, quickinfoNode)
+ 
++    // The stop and start pump menus are the first entry in the menu carousel, and which of
++    // the two is present depends on whether the Combo currently runs or is stopped. Pressing
++    // CHECK on them switches the pump between these states (see Pump.stopPump / Pump.startPump).
++    connectBidirectionally(
++        RTEdgeValue(RTNavigationButton.MENU, RTEdgeValue.EdgeValidityCondition.ONLY_IF_COMBO_RUNNING),
++        RTEdgeValue(RTNavigationButton.BACK, RTEdgeValue.EdgeValidityCondition.ONLY_IF_COMBO_RUNNING),
++        mainNode, stopPumpMenuNode
++    )
++    connectBidirectionally(
++        RTEdgeValue(RTNavigationButton.MENU, RTEdgeValue.EdgeValidityCondition.ONLY_IF_COMBO_STOPPED),
++        RTEdgeValue(RTNavigationButton.BACK, RTEdgeValue.EdgeValidityCondition.ONLY_IF_COMBO_STOPPED),
++        mainNode, startPumpMenuNode
++    )
++
+     connectBidirectionally(
+         RTEdgeValue(RTNavigationButton.MENU), RTEdgeValue(RTNavigationButton.BACK),
+         myDataMenuNode, basalRate1MenuNode
+-- 
+2.55.0
+

@@ -1,0 +1,39 @@
+From 5bbd3d41644c1d838625d413cfa92bf701a60a4c Mon Sep 17 00:00:00 2001
+From: Timm Korte <korte@korte-ing.de>
+Date: Sun, 10 Sep 2023 17:21:14 +0200
+Subject: [PATCH 03/14] TK: make bolus progress have a pink status bar
+
+---
+ core/ui/src/main/res/values/colors.xml          | 2 ++
+ ui/src/main/res/layout/dialog_bolusprogress.xml | 4 +++-
+ 2 files changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/core/ui/src/main/res/values/colors.xml b/core/ui/src/main/res/values/colors.xml
+index bff4085df8..15f1e246f1 100644
+--- a/core/ui/src/main/res/values/colors.xml
++++ b/core/ui/src/main/res/values/colors.xml
+@@ -382,4 +382,6 @@
+     <!--    Automations-->
+     <color name="actionColor">#FF8B00</color>
+ 
++    <!-- custom colors -->
++    <color name="aaps_pink">#FFC0CB</color>
+ </resources>
+diff --git a/ui/src/main/res/layout/dialog_bolusprogress.xml b/ui/src/main/res/layout/dialog_bolusprogress.xml
+index 386ef81516..c0abd767fb 100644
+--- a/ui/src/main/res/layout/dialog_bolusprogress.xml
++++ b/ui/src/main/res/layout/dialog_bolusprogress.xml
+@@ -73,7 +73,9 @@
+         android:maxHeight="5dp"
+         android:minHeight="3dp"
+         android:scaleY="5"
+-        tools:progress="50" />
++        tools:progress="50"
++        android:progressTint="@color/aaps_pink"
++        android:indeterminateTint="@color/aaps_pink" />
+ 
+     <com.google.android.material.button.MaterialButton
+         style="@style/GrayButton"
+-- 
+2.55.0
+

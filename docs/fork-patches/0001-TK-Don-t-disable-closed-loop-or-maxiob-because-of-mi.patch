@@ -1,0 +1,190 @@
+From a35a7cba80ba7cf3ffc3dbe35bb5ce362c095f47 Mon Sep 17 00:00:00 2001
+From: Timm Korte <korte@korte-ing.de>
+Date: Sat, 8 Apr 2023 15:02:32 +0200
+Subject: [PATCH 01/14] TK: Don't disable closed loop or maxiob because of
+ missing objectives or old version TK: Allow to specify percentage of insulin
+ required to be given as SMB instead of max/2 as a fixed limit TK: Allow zoom
+ to 3h
+
+---
+ .../assets/OpenAPSSMB/determine-basal.js            |  2 +-
+ .../aps/openAPSSMB/DetermineBasalAdapterSMBJS.kt    |  3 ++-
+ .../app/aaps/activities/HistoryBrowseActivity.kt    |  4 ++--
+ app/src/main/res/values/arrays.xml                  | 13 +++++++++++++
+ .../kotlin/app/aaps/core/data/aps/SMBDefaults.kt    |  1 +
+ plugins/aps/src/main/res/values/strings.xml         |  2 ++
+ .../constraints/objectives/ObjectivesPlugin.kt      |  3 ++-
+ .../versionChecker/VersionCheckerPlugin.kt          |  6 +-----
+ .../src/main/res/layout/objectives_fragment.xml     |  2 +-
+ .../main/general/overview/OverviewFragment.kt       |  4 ++--
+ 10 files changed, 27 insertions(+), 13 deletions(-)
+
+diff --git a/app/src/androidTest/assets/OpenAPSSMB/determine-basal.js b/app/src/androidTest/assets/OpenAPSSMB/determine-basal.js
+index 9dd8aea86e..85c30ecd62 100644
+--- a/app/src/androidTest/assets/OpenAPSSMB/determine-basal.js
++++ b/app/src/androidTest/assets/OpenAPSSMB/determine-basal.js
+@@ -1071,7 +1071,7 @@ var determine_basal = function determine_basal(glucose_status, currenttemp, iob_
+             }
+             // bolus 1/2 the insulinReq, up to maxBolus, rounding down to nearest bolus increment
+             var roundSMBTo = 1 / profile.bolus_increment;
+-            var microBolus = Math.floor(Math.min(insulinReq/2,maxBolus)*roundSMBTo)/roundSMBTo;
++            var microBolus = Math.floor(Math.min((insulinReq * profile.smbPercent)/100, maxBolus) * roundSMBTo) / roundSMBTo;
+             // calculate a long enough zero temp to eventually correct back up to target
+             var smbTarget = target_bg;
+             worstCaseInsulinReq = (smbTarget - (naive_eventualBG + minIOBPredBG)/2 ) / sens;
+diff --git a/app/src/androidTest/kotlin/app/aaps/plugins/aps/openAPSSMB/DetermineBasalAdapterSMBJS.kt b/app/src/androidTest/kotlin/app/aaps/plugins/aps/openAPSSMB/DetermineBasalAdapterSMBJS.kt
+index 9f857301bf..b613bca582 100644
+--- a/app/src/androidTest/kotlin/app/aaps/plugins/aps/openAPSSMB/DetermineBasalAdapterSMBJS.kt
++++ b/app/src/androidTest/kotlin/app/aaps/plugins/aps/openAPSSMB/DetermineBasalAdapterSMBJS.kt
+@@ -242,6 +242,7 @@ class DetermineBasalAdapterSMBJS(private val scriptReader: ScriptReader, private
+         this.profile.put("enableSMB_after_carbs", smbEnabled && preferences.get(BooleanKey.ApsUseSmbAfterCarbs) && advancedFiltering)
+         this.profile.put("maxSMBBasalMinutes", preferences.get(IntKey.ApsMaxMinutesOfBasalToLimitSmb))
+         this.profile.put("maxUAMSMBBasalMinutes", preferences.get(IntKey.ApsUamMaxMinutesOfBasalToLimitSmb))
++        this.profile.put("smbPercent", sp.getInt(R.string.key_smb_percent, SMBDefaults.smbPercent));
+         //set the min SMB amount to be the amount set by the pump.
+         this.profile.put("bolus_increment", pumpBolusStep)
+         this.profile.put("carbsReqThreshold", preferences.get(IntKey.ApsCarbsRequestThreshold))
+@@ -308,4 +309,4 @@ class DetermineBasalAdapterSMBJS(private val scriptReader: ScriptReader, private
+     init {
+         injector.androidInjector().inject(this)
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/app/src/main/kotlin/app/aaps/activities/HistoryBrowseActivity.kt b/app/src/main/kotlin/app/aaps/activities/HistoryBrowseActivity.kt
+index 710faec2d2..21bfcd299d 100644
+--- a/app/src/main/kotlin/app/aaps/activities/HistoryBrowseActivity.kt
++++ b/app/src/main/kotlin/app/aaps/activities/HistoryBrowseActivity.kt
+@@ -91,8 +91,8 @@ class HistoryBrowseActivity : TranslatedDaggerAppCompatActivity() {
+             loadAll("onClickEnd")
+         }
+         binding.zoom.setOnClickListener {
+-            var hours = rangeToDisplay + 6
+-            hours = if (hours > 24) 6 else hours
++            var hours = if (rangeToDisplay == 3) rangeToDisplay + 3 else rangeToDisplay + 6
++            hours = if (hours > 24) 3 else hours
+             rxBus.send(EventScale(hours))
+         }
+         binding.zoom.setOnLongClickListener {
+diff --git a/app/src/main/res/values/arrays.xml b/app/src/main/res/values/arrays.xml
+index 7ba05ee1a4..49e3fb8784 100644
+--- a/app/src/main/res/values/arrays.xml
++++ b/app/src/main/res/values/arrays.xml
+@@ -12,4 +12,17 @@
+         <item>120</item>
+     </string-array>
+ 
++    <string-array name="smbPercent">
++        <item>10</item>
++        <item>20</item>
++        <item>30</item>
++        <item>40</item>
++        <item>50</item>
++        <item>60</item>
++        <item>70</item>
++        <item>80</item>
++        <item>90</item>
++       <item>100</item>
++    </string-array>
++
+ </resources>
+diff --git a/core/data/src/main/kotlin/app/aaps/core/data/aps/SMBDefaults.kt b/core/data/src/main/kotlin/app/aaps/core/data/aps/SMBDefaults.kt
+index 6807bccb59..5bcaac445e 100644
+--- a/core/data/src/main/kotlin/app/aaps/core/data/aps/SMBDefaults.kt
++++ b/core/data/src/main/kotlin/app/aaps/core/data/aps/SMBDefaults.kt
+@@ -60,6 +60,7 @@ object SMBDefaults {
+     const val SMBInterval = 3 // minimum interval between SMBs, in minutes. (limited between 1 and 10 min)
+     const val maxSMBBasalMinutes = 30 // maximum minutes of basal that can be delivered as a single SMB with uncovered COB
+     const val maxUAMSMBBasalMinutes = 30 // maximum minutes of basal that can be delivered as a single SMB when IOB exceeds COB
++    const val smbPercent = 50 // percentage of insulin required to be delivered as SMB
+ 
+     // curve:"rapid-acting" // Supported curves: "bilinear", "rapid-acting" (Novolog, Novorapid, Humalog, Apidra) and "ultra-rapid" (Fiasp)
+     // useCustomPeakTime:false // allows changing insulinPeakTime
+diff --git a/plugins/aps/src/main/res/values/strings.xml b/plugins/aps/src/main/res/values/strings.xml
+index 30e1e85f95..4d20ac78ae 100644
+--- a/plugins/aps/src/main/res/values/strings.xml
++++ b/plugins/aps/src/main/res/values/strings.xml
+@@ -3,6 +3,7 @@
+     <!--Autotune-->
+     <string name="dynisf_adjust_sensitivity">Enable TDD based sensitivity ratio for basal and glucose target modification</string>
+     <string name="dynisf_adjust_sensitivity_summary">Uses the last 24h TDD/7D TDD to calculate sensitivity ratio used for increasing or decreasing basal rate, and also adjust glucose target if these options are enabled, in the same way Autosens does. It is recommended to start with this option turned off</string>
++    <string name="key_smb_percent" translatable="false">smbpercent</string>
+     <string name="dyn_isf_adjust_title" formatted="false">DynamicISF Adjustment Factor %</string>
+     <string name="dyn_isf_adjust_summary" formatted="false">Adjustment factor for DynamicISF. Set more than 100% for more aggressive correction doses, and less than 100% for less aggressive corrections.</string>
+     <string name="high_temptarget_raises_sensitivity_title">High temptarget raises sensitivity</string>
+@@ -79,6 +80,7 @@
+     <string name="enable_smb_with_high_temp_target">Enable SMB with high temp targets</string>
+     <string name="enable_smb_with_high_temp_target_summary">Enable SMB when there is high temp target active (exercise, above 100 mg/dl or 5.5 mmol/l)</string>
+     <string name="smb_max_minutes_summary">Max minutes of basal to limit SMB to</string>
++    <string name="smb_percent_summary">Percentage of Insulin Required to give as SMB</string>
+     <string name="uam_smb_max_minutes">UAM SMB max minutes</string>
+     <string name="uam_smb_max_minutes_summary">Max minutes of basal to limit SMB to for UAM</string>
+     <string name="carbs_req_threshold">Minimum Carbs Required For Suggestion</string>
+diff --git a/plugins/constraints/src/main/kotlin/app/aaps/plugins/constraints/objectives/ObjectivesPlugin.kt b/plugins/constraints/src/main/kotlin/app/aaps/plugins/constraints/objectives/ObjectivesPlugin.kt
+index fc45caa678..93bebf4a93 100644
+--- a/plugins/constraints/src/main/kotlin/app/aaps/plugins/constraints/objectives/ObjectivesPlugin.kt
++++ b/plugins/constraints/src/main/kotlin/app/aaps/plugins/constraints/objectives/ObjectivesPlugin.kt
+@@ -73,6 +73,7 @@ class ObjectivesPlugin @Inject constructor(
+     /**
+      * Constraints interface
+      */
++    /**
+     override fun isLoopInvocationAllowed(value: Constraint<Boolean>): Constraint<Boolean> {
+         // Check if initialized
+         if (objectives.isEmpty()) return value
+@@ -120,7 +121,7 @@ class ObjectivesPlugin @Inject constructor(
+             value.set(false, rh.gs(R.string.objectivenotstarted, AUTO_OBJECTIVE + 1), this)
+         return value
+     }
+-
++    */
+     override fun isAccomplished(index: Int) = objectives[index].isAccomplished
+     override fun isStarted(index: Int): Boolean = objectives[index].isStarted
+ }
+diff --git a/plugins/constraints/src/main/kotlin/app/aaps/plugins/constraints/versionChecker/VersionCheckerPlugin.kt b/plugins/constraints/src/main/kotlin/app/aaps/plugins/constraints/versionChecker/VersionCheckerPlugin.kt
+index c6f8860add..3f7a2c629d 100644
+--- a/plugins/constraints/src/main/kotlin/app/aaps/plugins/constraints/versionChecker/VersionCheckerPlugin.kt
++++ b/plugins/constraints/src/main/kotlin/app/aaps/plugins/constraints/versionChecker/VersionCheckerPlugin.kt
+@@ -38,10 +38,6 @@ class VersionCheckerPlugin @Inject constructor(
+ 
+     override fun applyMaxIOBConstraints(maxIob: Constraint<Double>): Constraint<Double> {
+         versionCheckerUtils.triggerCheckVersion()
+-        val endDate = preferences.get(LongComposedKey.AppExpiration, config.VERSION_NAME)
+-        return if (endDate != 0L && dateUtil.now() > endDate)
+-            maxIob.set(0.0, rh.gs(R.string.application_expired), this)
+-        else
+-            maxIob
++        maxIob
+     }
+ }
+diff --git a/plugins/constraints/src/main/res/layout/objectives_fragment.xml b/plugins/constraints/src/main/res/layout/objectives_fragment.xml
+index 8176eab5de..7f06be9b94 100644
+--- a/plugins/constraints/src/main/res/layout/objectives_fragment.xml
++++ b/plugins/constraints/src/main/res/layout/objectives_fragment.xml
+@@ -13,7 +13,7 @@
+         android:paddingStart="16dp"
+         android:paddingTop="16dp"
+         android:paddingEnd="16dp"
+-        android:visibility="gone">
++        android:visibility="visible">
+ 
+         <CheckBox
+             android:id="@+id/fake"
+diff --git a/plugins/main/src/main/kotlin/app/aaps/plugins/main/general/overview/OverviewFragment.kt b/plugins/main/src/main/kotlin/app/aaps/plugins/main/general/overview/OverviewFragment.kt
+index 7dab667132..df75debc68 100644
+--- a/plugins/main/src/main/kotlin/app/aaps/plugins/main/general/overview/OverviewFragment.kt
++++ b/plugins/main/src/main/kotlin/app/aaps/plugins/main/general/overview/OverviewFragment.kt
+@@ -231,8 +231,8 @@ class OverviewFragment : DaggerFragment(), View.OnClickListener, OnLongClickList
+         carbAnimation?.setExitFadeDuration(1200)
+ 
+         binding.graphsLayout.bgGraph.setOnLongClickListener {
+-            overviewData.rangeToDisplay += 6
+-            overviewData.rangeToDisplay = if (overviewData.rangeToDisplay > 24) 6 else overviewData.rangeToDisplay
++            overviewData.rangeToDisplay += if (overviewData.rangeToDisplay == 3) 3 else 6
++            overviewData.rangeToDisplay = if (overviewData.rangeToDisplay > 24) 3 else overviewData.rangeToDisplay
+             preferences.put(IntNonKey.RangeToDisplay, overviewData.rangeToDisplay)
+             rxBus.send(EventPreferenceChange(IntNonKey.RangeToDisplay.key))
+             preferences.put(BooleanNonKey.ObjectivesScaleUsed, true)
+-- 
+2.55.0
+

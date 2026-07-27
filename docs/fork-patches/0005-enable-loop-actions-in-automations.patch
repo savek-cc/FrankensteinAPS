@@ -1,0 +1,38 @@
+From b03495c32a340a0ea7053a200276293a631d3c17 Mon Sep 17 00:00:00 2001
+From: Timm Korte <korte@korte-ing.de>
+Date: Fri, 23 Feb 2024 22:48:14 +0100
+Subject: [PATCH 05/14] enable loop actions in automations
+
+---
+ .../app/aaps/plugins/automation/AutomationPlugin.kt       | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/plugins/automation/src/main/kotlin/app/aaps/plugins/automation/AutomationPlugin.kt b/plugins/automation/src/main/kotlin/app/aaps/plugins/automation/AutomationPlugin.kt
+index 758332de80..8e5a42c707 100644
+--- a/plugins/automation/src/main/kotlin/app/aaps/plugins/automation/AutomationPlugin.kt
++++ b/plugins/automation/src/main/kotlin/app/aaps/plugins/automation/AutomationPlugin.kt
+@@ -38,6 +38,10 @@ import app.aaps.core.validators.preferences.AdaptiveListPreference
+ import app.aaps.plugins.automation.actions.Action
+ import app.aaps.plugins.automation.actions.ActionAlarm
+ import app.aaps.plugins.automation.actions.ActionCarePortalEvent
++import app.aaps.plugins.automation.actions.ActionLoopDisable
++import app.aaps.plugins.automation.actions.ActionLoopEnable
++import app.aaps.plugins.automation.actions.ActionLoopResume
++import app.aaps.plugins.automation.actions.ActionLoopSuspend
+ import app.aaps.plugins.automation.actions.ActionNotification
+ import app.aaps.plugins.automation.actions.ActionProfileSwitch
+ import app.aaps.plugins.automation.actions.ActionProfileSwitchPercent
+@@ -391,6 +395,10 @@ class AutomationPlugin @Inject constructor(
+ 
+     fun getActionDummyObjects(): List<Action> {
+         val actions = mutableListOf(
++            ActionLoopDisable(injector),
++            ActionLoopEnable(injector),
++            ActionLoopResume(injector),
++            ActionLoopSuspend(injector),
+             ActionStopProcessing(injector),
+             ActionStartTempTarget(injector),
+             ActionStopTempTarget(injector),
+-- 
+2.55.0
+
