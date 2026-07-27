@@ -104,7 +104,10 @@ data class GeneralColors(
     val notificationAnnouncement: Color,
     val onNotification: Color,
     // Toggle colors
-    val toggleOn: Color
+    val toggleOn: Color,
+    // Bolus progress bar. Deliberately off the rest of the palette so the bar of this build is
+    // recognisable at a glance and cannot be confused with a stock one.
+    val bolusProgress: Color
 )
 
 /**
@@ -161,7 +164,8 @@ val LightGeneralColors = GeneralColors(
     notificationInfo = Color(0xFF009705),         // green for info notifications
     notificationAnnouncement = Color(0xFFFF8C00), // orange for announcements
     onNotification = Color(0xFFFFFFFF),            // white text on notification backgrounds
-    toggleOn = Color(0xFF4CAF50)                    // green for active/selected toggles
+    toggleOn = Color(0xFF4CAF50),                   // green for active/selected toggles
+    bolusProgress = Color(0xFFFFC0CB)               // pink, marks this build's bolus progress bar
 )
 
 /**
@@ -218,7 +222,8 @@ val DarkGeneralColors = GeneralColors(
     notificationInfo = Color(0xFF009705),
     notificationAnnouncement = Color(0xFFFF8C00),
     onNotification = Color(0xFFFFFFFF),
-    toggleOn = Color(0xFF81C784)                    // lighter green for active/selected toggles (dark mode)
+    toggleOn = Color(0xFF81C784),                   // lighter green for active/selected toggles (dark mode)
+    bolusProgress = Color(0xFFFFC0CB)               // pink, marks this build's bolus progress bar
 )
 
 /**
