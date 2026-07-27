@@ -1301,8 +1301,76 @@ class ComboV2Plugin @Inject constructor(
         return pumpEnactResult
     }
 
-    override suspend fun cancelExtendedBolus(): PumpEnactResult =
-        createFailurePumpEnactResult(R.string.combov2_extended_bolus_not_supported)
+    /**
+     * Cancels a running extended bolus by stopping the pump and starting it again.
+     *
+     * The Combo has no command that ends the delayed portion of a bolus. CMD_CANCEL_BOLUS only ever
+     * affects the immediate portion and answers with CMD_BOLUS_NOT_DELIVERING once that portion is
+     * done - measured on a bench pump for both bolus types and both cancel type arguments, while the
+     * pump's own display still showed the bolus running. Stopping the pump is what ends it.
+     *
+     * Three consequences of that route:
+     * - A running TBR is cancelled by the pump as well and is *not* restored. AAPS sees this through
+     *   the pump state and sets a new TBR on the next loop run, then based on current data.
+     * - Between stop and start there are a few seconds without any delivery, basal included.
+     * - The pump raises alerts for what it interrupted (W8 for the bolus, W6 for a TBR). Those are
+     *   dismissed by the alert handling around the command.
+     *
+     * Because of these side effects the pump is only touched when there really is something to
+     * cancel.
+     */
+    override suspend fun cancelExtendedBolus(): PumpEnactResult {
+        val acquiredPump = getAcquiredPump()
+
+        val pumpEnactResult = pumpEnactResultProvider.get()
+        pumpEnactResult.success = false
+
+        if (pumpSync.expectedPumpState().extendedBolus == null) {
+            aapsLogger.info(LTag.PUMP, "No extended bolus is running; not stopping the pump")
+            return pumpEnactResult.apply {
+                success = true
+                enacted = false
+                comment = rh.gs(R.string.combov2_no_extended_bolus_running)
+            }
+        }
+
+        if (isSuspended()) {
+            // The pump delivers nothing while stopped, so any extended bolus ended when it stopped.
+            // Starting it here would resume delivery that nobody asked for.
+            aapsLogger.info(LTag.PUMP, "Pump is suspended; extended bolus already ended, leaving the pump stopped")
+            return pumpEnactResult.apply {
+                success = true
+                enacted = false
+                comment = rh.gs(R.string.combov2_cannot_deliver_pump_suspended)
+            }
+        }
+
+        try {
+            executeCommand {
+                acquiredPump.stopPump()
+                acquiredPump.startPump()
+            }
+            pumpEnactResult.apply {
+                success = true
+                enacted = true
+                comment = rh.gs(R.string.combov2_extended_bolus_cancelled)
+            }
+        } catch (e: Exception) {
+            aapsLogger.error(LTag.PUMP, "Cancelling the extended bolus failed with exception: $e")
+            // If the pump did stop but did not start again, delivery is off and only the user can
+            // fix that at the pump. Say so instead of reporting a generic failure.
+            val pumpIsStopped = isSuspended()
+            pumpEnactResult.apply {
+                enacted = pumpIsStopped
+                comment = rh.gs(
+                    if (pumpIsStopped) R.string.combov2_extended_bolus_cancel_left_pump_stopped
+                    else R.string.combov2_extended_bolus_cancel_failed
+                )
+            }
+        }
+
+        return pumpEnactResult
+    }
 
     override fun updateExtendedJsonStatus(extendedStatus: JSONObject) {
         when (val alert = lastComboAlert) {
