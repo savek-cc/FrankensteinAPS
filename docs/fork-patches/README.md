@@ -122,7 +122,11 @@ Drei Commits, die den Extended-Bolus-Komplex abschließen:
 | `d592b3ea16` | Multiwave-Boli werden als Bolus + Extended Bolus gebucht |
 
 Zum Abbruch: Eine laufende TBR wird von der Pumpe mit abgebrochen und **nicht** wiederhergestellt —
-AAPS sieht den Pumpenzustand und setzt im nächsten Loop-Lauf mit aktuellen Daten neu. Zwischen Stop
+AAPS sieht den Pumpenzustand und setzt im nächsten Loop-Lauf mit aktuellen Daten neu. Der
+Loop-Suspend aus Feature C wird beim Ende des Bolus aufgehoben (auch beim vorzeitigen), sonst bliebe
+der Loop nach einem Abbruch bis zum ursprünglich geplanten Ende ausgesetzt. Aufgehoben wird nur die
+Pause, die der Treiber selbst gesetzt hat — erkannt am Zeitstempel des `RunningMode`-Datensatzes,
+damit eine vom Nutzer gesetzte Pause unangetastet bleibt. Zwischen Stop
 und Start gibt es einige Sekunden ohne jede Abgabe. Die Pumpe wird nur angefasst, wenn laut
 `expectedPumpState()` wirklich ein EB läuft und die Pumpe nicht ohnehin suspendiert ist; im zweiten
 Fall würde ein `startPump()` eine Abgabe wiederaufnehmen, die niemand angefordert hat.
@@ -165,10 +169,6 @@ History-Events, die in sich stimmig sind.
 
 ## Was noch offen ist
 
-- **Loop-Suspend läuft nach einem Abbruch weiter:** `cancelExtendedBolus()` beendet den Bolus, aber
-  der mit ihm gesetzte `SUSPENDED_BY_USER` läuft bis zum ursprünglich geplanten Ende weiter. Ein
-  automatisches Aufheben wäre nur sicher, wenn das Plugin sich merkt, dass *es* den Suspend gesetzt
-  hat — sonst würde es eine vom Nutzer selbst gesetzte Pause aufheben.
 - **Laufzeittest der AAPS-Anbindung:** Stop/Start-Zyklus, Abbruchverhalten und History-Semantik sind
   an der Prüfpumpe gemessen, die Anbindung in AAPS selbst nicht — dafür müsste die Prüfpumpe an ein
   Telefon gekoppelt werden.
