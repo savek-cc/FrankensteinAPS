@@ -1921,6 +1921,37 @@ class ComboV2Plugin @Inject constructor(
     }
 
     /**
+     * Pauses the loop for as long as a bolus keeps delivering insulin over time.
+     *
+     * Insulin that an extended or multiwave bolus still has to deliver is a plan, not IOB. A TBR or
+     * an SMB on top of it would dose on a basis that is not there yet, so the loop is paused until
+     * the bolus is through. [RM.Mode.SUSPENDED_BY_USER] expires on its own when the duration
+     * elapses and is not re-derived from the pump state, unlike [RM.Mode.SUSPENDED_BY_PUMP].
+     *
+     * @param startTimestamp when the pump started the bolus, in milliseconds
+     * @param totalDurationMinutes duration the bolus was programmed with
+     */
+    private suspend fun suspendLoopWhileDelayedInsulinRuns(startTimestamp: Long, totalDurationMinutes: Int) {
+        val now = dateUtil.now()
+        val end = startTimestamp + totalDurationMinutes.toLong() * 60 * 1000
+        val profile = profileFunction.getProfile()
+
+        if ((end <= now) || (profile == null))
+            return
+
+        // One minute extra because the pump clock and the phone clock can be slightly apart.
+        val suspendForMinutes = ((end - now) / 60 / 1000).toInt() + 1
+        aapsLogger.debug(LTag.PUMP, "Pump delivers insulin over time for $suspendForMinutes more min -> suspending loop for that long")
+        loop.handleRunningModeChange(
+            newRM = RM.Mode.SUSPENDED_BY_USER,
+            durationInMinutes = suspendForMinutes,
+            action = Action.SUSPEND,
+            source = Sources.Combo,
+            profile = profile
+        )
+    }
+
+    /**
      * The part of a multiwave bolus that is delivered over time, in pump units.
      *
      * Both multiwave events report a total that *includes* the immediate portion. Measured on a
@@ -1990,29 +2021,7 @@ class ComboV2Plugin @Inject constructor(
                         serialNumber()
                     )
 
-                    // The insulin an extended bolus still has to deliver is a plan, not IOB. Dosing
-                    // on top of it would dose on a basis that is not there yet, so the loop is
-                    // paused until the bolus is through. SUSPENDED_BY_USER runs out on its own when
-                    // the duration elapses; it is not tied to the pump state like SUSPENDED_BY_PUMP.
-                    val now = dateUtil.now()
-                    val end = event.timestamp.toEpochMilliseconds() + event.totalDurationMinutes.toLong() * 60 * 1000
-                    val profile = profileFunction.getProfile()
-                    if ((end > now) && (profile != null)) {
-                        // One minute extra because the pump clock and the phone clock can be slightly apart.
-                        val suspendForMinutes = ((end - now) / 60 / 1000).toInt() + 1
-                        aapsLogger.debug(
-                            LTag.PUMP,
-                            "Pump reports extended bolus started; amount: ${event.totalBolusAmount} duration: ${event.totalDurationMinutes} min" +
-                                " -> suspending loop for $suspendForMinutes min"
-                        )
-                        loop.handleRunningModeChange(
-                            newRM = RM.Mode.SUSPENDED_BY_USER,
-                            durationInMinutes = suspendForMinutes,
-                            action = Action.SUSPEND,
-                            source = Sources.Combo,
-                            profile = profile
-                        )
-                    }
+                    suspendLoopWhileDelayedInsulinRuns(event.timestamp.toEpochMilliseconds(), event.totalDurationMinutes)
                 }
             }
 
@@ -2057,6 +2066,12 @@ class ComboV2Plugin @Inject constructor(
                         PumpType.ACCU_CHEK_COMBO,
                         serialNumber()
                     )
+
+                    // Same reasoning as for a plain extended bolus: what is still to come is a plan,
+                    // not IOB. Only reachable when the user starts a multiwave at the pump itself,
+                    // since AAPS never programs one.
+                    if (delayedAmount > 0)
+                        suspendLoopWhileDelayedInsulinRuns(event.timestamp.toEpochMilliseconds(), event.totalDurationMinutes)
                 }
             }
 
