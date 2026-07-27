@@ -84,6 +84,25 @@ Damit bleibt es bei dem, was comboctl in `Pump.kt:1489-1493` dokumentiert: Der v
 kann nur durch **Stoppen und Neustarten der Pumpe** beendet werden — was, wie oben gemessen, per
 Bluetooth funktioniert.
 
+## Zusammenspiel mit einer laufenden TBR (gemessen)
+
+Ablauf: TBR 150 % für 30 min gesetzt, danach Extended Bolus 0,6 IE über 15 min, dann Abbruch über
+`stopPump()` / `startPump()` (die neu implementierten Treiberfunktionen).
+
+- Beides läuft **parallel**: Während des Extended Bolus zeigt der Status weiterhin
+  `tbrOngoing=true, tbrPercentage=150`.
+- Beim Stopp meldet die Pumpe **zwei** Warnungen: **W8** (Bolus abgebrochen) und **W6** (TBR
+  abgebrochen). Die Alarmbehandlung von `executeCommand` quittiert beide.
+- Gebucht wird exakt: `TbrEnded(percentage=150, durationInMinutes=2)` für die TBR,
+  `ExtendedBolusEnded(totalBolusAmount=1, totalDurationMinutes=2)` für den Bolus — also 0,1 IE
+  von 0,6 IE.
+- **Nach dem Neustart ist die TBR weg.** Der Zustand lautet `activeBasalProfileNumber=1,
+  currentBasalRateFactor=80, tbrOngoing=false, tbrPercentage=100`, `currentTbr=null`. Die Pumpe
+  stellt die TBR nicht wieder her.
+
+Folge für AAPS: Ein Abbruch des verzögerten Bolus über den Stopp-Weg beendet **immer** auch eine
+laufende TBR. Der Loop muss sie danach neu setzen, sonst läuft die Basalrate unbemerkt auf 100 %.
+
 ## Was für eine Umsetzung in AAPS noch fehlt
 
 1. **comboctl kann die Pumpe nicht stoppen/starten.** Das Stop-Menü wird nur erkannt, nie
