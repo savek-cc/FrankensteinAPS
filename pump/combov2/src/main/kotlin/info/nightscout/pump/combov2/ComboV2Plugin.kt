@@ -42,6 +42,7 @@ import app.aaps.core.keys.interfaces.Preferences
 import app.aaps.core.ui.compose.icons.IcPluginCombo
 import app.aaps.core.ui.compose.preference.PreferenceSubScreenDef
 import info.nightscout.comboctl.android.AndroidBluetoothInterface
+import info.nightscout.comboctl.base.ApplicationLayer.CMDDeliverBolusType
 import info.nightscout.comboctl.base.BasicProgressStage
 import info.nightscout.comboctl.base.BluetoothException
 import info.nightscout.comboctl.base.BluetoothNotAvailableException
@@ -1224,11 +1225,74 @@ class ComboV2Plugin @Inject constructor(
         }
     }
 
-    // It is currently not known how to program an extended bolus into the Combo.
-    // Until that is reverse engineered, inform callers that we can't handle this.
+    /**
+     * Programs an extended bolus into the pump.
+     *
+     * The Combo delivers this on its own once it was programmed, so unlike a standard bolus this
+     * returns as soon as the pump accepted the command - there is no progress to report and no
+     * connection to keep open. The record in the database is not written here either; it is created
+     * when the pump reports the [ComboCtlPump.Event.ExtendedBolusStarted] history event.
+     *
+     * The amount is expected to be constrained by the caller (the command queue does this via
+     * `applyExtendedBolusConstraints`), same as for every other pump.
+     */
+    override suspend fun setExtendedBolus(insulin: Double, durationInMinutes: Int): PumpEnactResult {
+        val acquiredPump = getAcquiredPump()
 
-    override suspend fun setExtendedBolus(insulin: Double, durationInMinutes: Int): PumpEnactResult =
-        createFailurePumpEnactResult(R.string.combov2_extended_bolus_not_supported)
+        val pumpEnactResult = pumpEnactResultProvider.get()
+        pumpEnactResult.success = false
+
+        if (isSuspended()) {
+            aapsLogger.info(LTag.PUMP, "Cannot deliver extended bolus since the pump is suspended")
+            return pumpEnactResult.apply {
+                enacted = false
+                comment = rh.gs(R.string.combov2_cannot_deliver_pump_suspended)
+            }
+        }
+
+        try {
+            executeCommand {
+                acquiredPump.deliverBolus(
+                    totalBolusAmount = insulin.iuToCctlBolus(),
+                    immediateBolusAmount = 0,
+                    durationInMinutes = durationInMinutes,
+                    standardBolusReason = ComboCtlPump.StandardBolusReason.NORMAL,
+                    bolusType = CMDDeliverBolusType.EXTENDED_BOLUS
+                )
+            }
+            pumpEnactResult.apply {
+                success = true
+                enacted = true
+                comment = rh.gs(R.string.combov2_extended_bolus_started)
+            }
+        } catch (_: ComboCtlPump.BolusNotDeliveredException) {
+            aapsLogger.error(LTag.PUMP, "Extended bolus not delivered")
+            pumpEnactResult.apply {
+                enacted = false
+                comment = rh.gs(R.string.combov2_extended_bolus_not_delivered)
+            }
+        } catch (_: ComboCtlPump.UnaccountedBolusDetectedException) {
+            aapsLogger.error(LTag.PUMP, "Unaccounted bolus detected")
+            pumpEnactResult.apply {
+                enacted = false
+                comment = rh.gs(R.string.combov2_unaccounted_bolus_detected_cancelling_bolus)
+            }
+        } catch (_: ComboCtlPump.InsufficientInsulinAvailableException) {
+            aapsLogger.error(LTag.PUMP, "Insufficient insulin in reservoir")
+            pumpEnactResult.apply {
+                enacted = false
+                comment = rh.gs(R.string.combov2_insufficient_insulin_in_reservoir)
+            }
+        } catch (e: Exception) {
+            aapsLogger.error(LTag.PUMP, "Exception thrown during extended bolus delivery: $e")
+            pumpEnactResult.apply {
+                enacted = false
+                comment = rh.gs(R.string.combov2_bolus_delivery_failed)
+            }
+        }
+
+        return pumpEnactResult
+    }
 
     override suspend fun cancelExtendedBolus(): PumpEnactResult =
         createFailurePumpEnactResult(R.string.combov2_extended_bolus_not_supported)
@@ -1845,7 +1909,11 @@ class ComboV2Plugin @Inject constructor(
                         event.timestamp.toEpochMilliseconds(),
                         event.bolusId,
                         PumpType.ACCU_CHEK_COMBO,
-                        serialNumber()
+                        serialNumber(),
+                        // The pump records what it really delivered. That differs from the
+                        // programmed amount whenever the bolus was cut short, for example by
+                        // stopping the pump.
+                        event.totalBolusAmount.cctlBolusToIU()
                     )
                 }
             }
