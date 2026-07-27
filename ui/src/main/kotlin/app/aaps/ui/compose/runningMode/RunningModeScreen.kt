@@ -305,7 +305,10 @@ private fun PumpDisconnectSection(
     val duration30mText = stringResource(R.string.duration30m)
     val duration1hText = stringResource(R.string.duration1h)
     val duration2hText = stringResource(R.string.duration2h)
-    val duration3hText = stringResource(R.string.duration3h)
+
+    // 6 instead of 3 hours: a pump break for sport, a sauna or a set change tends to outlast three
+    // hours, and re-triggering the disconnect halfway through is exactly what gets forgotten.
+    val duration6hText = stringResource(R.string.duration6h)
 
     SectionCard(title = title) {
         if (isDisconnected && allowedModes.contains(RM.Mode.RESUME)) {
@@ -341,8 +344,8 @@ private fun PumpDisconnectSection(
                     Modifier.weight(1f)
                 )
                 CompactButton(
-                    duration3hText, RM.Mode.DISCONNECTED_PUMP,
-                    { onAction(PendingRunningModeAction(RM.Mode.DISCONNECTED_PUMP, Action.DISCONNECT, 180)) },
+                    duration6hText, RM.Mode.DISCONNECTED_PUMP,
+                    { onAction(PendingRunningModeAction(RM.Mode.DISCONNECTED_PUMP, Action.DISCONNECT, 360)) },
                     Modifier.weight(1f)
                 )
             }
