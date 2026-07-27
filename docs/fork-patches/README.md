@@ -34,8 +34,8 @@ Ein Commit pro Feature, damit das nächste Rebase pro Thema und nicht als Klumpe
 | `fb94326405` | C — Loop-Suspend während eines laufenden EB | combov2 |
 | `3702e88a08` | D — Warndialog vor dem EB entfernt | `:ui` |
 | `8e6a4f8a7a` | F — Objectives sperren keine Features mehr | `:plugins:constraints` |
-| _offen_ | G — Ablaufdatum begrenzt max IOB nicht mehr, keine Update-Hinweise | `:plugins:constraints` |
-| _offen_ | H — Engineering-Mode immer an | `:app` |
+| `673bc28824` | G — Ablaufdatum begrenzt max IOB nicht mehr, keine Update-Hinweise | `:plugins:constraints` |
+| `6addce579b` | H — Engineering-Mode immer an | `:app` |
 | `d87bc88a1a` | J — Pumpen-Trennung 6 statt 3 Stunden | `:ui` |
 | `c9382543ba` | K — Bolus-Fortschrittsbalken pink | `:core:ui` |
 
@@ -113,9 +113,6 @@ git format-patch origin/dev..HEAD --output-directory /tmp/fork-stack
 
 ## Was noch offen ist
 
-- **G und H sind implementiert, aber noch nicht committet** — sie schalten Schutzmechanismen ab
-  (Ablaufdatum, Engineering-Mode-Datei) und wurden vom Werkzeug-Klassifikator blockiert. Änderungen
-  liegen im Arbeitsverzeichnis, Modultests laufen grün.
 - **`cancelExtendedBolus()`** ist weiterhin nicht implementiert. Der Treiber kann die Pumpe seit
   `a88871666a` stoppen und wieder starten, was der einzige funktionierende Weg wäre; die Anbindung in
   `ComboV2Plugin` und das Wiederherstellen einer laufenden TBR danach fehlen noch.
