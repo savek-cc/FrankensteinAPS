@@ -28,6 +28,7 @@ import app.aaps.core.interfaces.logging.LTag
 import app.aaps.core.interfaces.maintenance.Maintenance
 import app.aaps.core.interfaces.plugin.ActivePlugin
 import app.aaps.core.interfaces.profile.ProfileFunction
+import app.aaps.core.interfaces.pump.Pump
 import app.aaps.core.interfaces.queue.Command
 import app.aaps.core.interfaces.queue.CommandQueue
 import app.aaps.core.interfaces.resources.ResourceHelper
@@ -46,6 +47,8 @@ import kotlinx.coroutines.Dispatchers
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 @HiltWorker
 class KeepAliveWorker @AssistedInject constructor(
@@ -76,9 +79,28 @@ class KeepAliveWorker @AssistedInject constructor(
         private val STATUS_UPDATE_FREQUENCY = T.mins(15).msecs()
         private const val IOB_UPDATE_FREQUENCY_IN_MINUTES = 5L
 
+        /**
+         * Delays between recovery attempts once the pump stopped answering or suspended itself.
+         * The last value is used for all further attempts.
+         */
+        private val RECOVERY_DELAYS = longArrayOf(T.mins(5).msecs(), T.mins(10).msecs(), T.mins(15).msecs(), T.mins(30).msecs())
+
         private var lastReadStatus: Long = 0
         private var lastRun: Long = 0
         private var lastIobUpload: Long = 0
+
+        // Recovery state. Static because WorkManager creates a new worker instance for every run.
+        private var lastSeenConnection: Long = 0
+        private var lastRecoveryAttempt: Long = 0
+        private var recoveryAttempt: Int = 0
+
+        @VisibleForTesting
+        fun resetRecoveryState() {
+            lastSeenConnection = 0
+            lastRecoveryAttempt = 0
+            recoveryAttempt = 0
+            lastReadStatus = 0
+        }
 
         const val KA_0 = "KeepAlive"
         private const val KA_5 = "KeepAlive_5"
@@ -243,13 +265,16 @@ class KeepAliveWorker @AssistedInject constructor(
     @VisibleForTesting
     suspend fun checkPump() {
         val pump = activePlugin.activePump
-        val ps = profileFunction.getRequestedProfile() ?: return
-        val requestedProfile = ProfileSealed.PS(ps, activePlugin)
+        // The profile switch record may be missing (ie. cleaned up from the database). Status
+        // reading and the pump unreachable alarm must keep working in that case, only the profile
+        // comparison below is skipped.
+        val requestedProfile = profileFunction.getRequestedProfile()?.let { ProfileSealed.PS(it, activePlugin) }
         val runningProfile = profileFunction.getProfile()
         val lastConnection = pump.lastDataTime.value
         val now = dateUtil.now()
         val isStatusOutdated = lastConnection + STATUS_UPDATE_FREQUENCY < now
-        val isBasalOutdated = abs(requestedProfile.getBasal() - ch.fromPump(pump.baseBasalRate)) > pump.pumpDescription.basalStep
+        val isBasalOutdated = requestedProfile != null &&
+            abs(requestedProfile.getBasal() - ch.fromPump(pump.baseBasalRate)) > pump.pumpDescription.basalStep
         aapsLogger.debug(LTag.CORE, "Last connection: " + dateUtil.dateAndTimeString(lastConnection))
         // Sometimes it can happen that keepalive is not triggered every 5 minutes as it should.
         // In some cases, it may not even have been started at all.
@@ -266,25 +291,72 @@ class KeepAliveWorker @AssistedInject constructor(
         if (lastReadStatus != 0L && (now - lastReadStatus).coerceIn(minimumValue = 0, maximumValue = null) <= T.secs(5 * 60 + 30).msecs()) {
             localAlertUtils.checkPumpUnreachableAlarm(lastConnection, isStatusOutdated, runningMode == RM.Mode.DISCONNECTED_PUMP)
         }
+        val expiredProfileSwitch = runningProfile is ProfileSealed.EPS &&
+            runningProfile.value.originalEnd < now &&
+            runningProfile.value.originalDuration != 0L
+        val profileSwitchNeeded = requestedProfile != null &&
+            (
+                runningProfile == null ||
+                    (
+                        (!pump.isThisProfileSet(requestedProfile) ||
+                            !requestedProfile.isEqual(runningProfile) ||
+                            expiredProfileSwitch
+                            )
+                            && !commandQueue.isRunning(Command.CommandType.BASAL_PROFILE)
+                        )
+                )
+
+        // The pump is out of touch: it did not answer for a while, or it told us that it stopped
+        // delivering. Nothing but this check reconnects in that state, so the reads are spaced out
+        // instead of being repeated every 5 min for as long as it takes the user to fix the pump.
+        val recoveryNeeded = isStatusOutdated || pump.isSuspended()
+
         if (runningMode == RM.Mode.DISCONNECTED_PUMP) {
             // do nothing if pump is disconnected
-        } else if (
-            runningProfile == null ||
-            (
-                (!pump.isThisProfileSet(requestedProfile) ||
-                    !requestedProfile.isEqual(runningProfile) ||
-                    (runningProfile is ProfileSealed.EPS && runningProfile.value.originalEnd < dateUtil.now() && runningProfile.value.originalDuration != 0L)
-                    )
-                    && !commandQueue.isRunning(Command.CommandType.BASAL_PROFILE)
-                )
-        ) {
+        } else if (profileSwitchNeeded) {
             rxBus.send(EventProfileChangeRequested())
-        } else if (isStatusOutdated && !pump.isBusy()) {
-            lastReadStatus = now
-            commandQueue.readStatus(rh.gs(app.aaps.core.ui.R.string.keepalive_status_outdated))
+        } else if (recoveryNeeded) {
+            if (!pump.isBusy() && isRecoveryDue(pump, now)) {
+                lastReadStatus = now
+                commandQueue.readStatus(rh.gs(app.aaps.core.ui.R.string.keepalive_status_outdated))
+            }
         } else if (isBasalOutdated && !pump.isBusy()) {
+            // Pump is answering, it just runs a different basal rate than the profile asks for.
+            // That is not a connection problem, so it is read right away and not backed off.
             lastReadStatus = now
             commandQueue.readStatus(rh.gs(app.aaps.core.ui.R.string.keepalive_basal_outdated))
         }
+    }
+
+    /**
+     * Decide whether a recovery status read should be requested now.
+     *
+     * The pump is contacted by the loop itself as long as it accepts commands. If it stopped doing
+     * so (pump error, empty battery, occlusion, out of range) nothing else would ever reconnect, so
+     * the status is requested here with increasing delays (see [RECOVERY_DELAYS]) until the pump
+     * answers again. Every attempt is a single [CommandQueue.readStatus]; the connection retrying
+     * inside one attempt is done by the queue.
+     *
+     * @param pump active pump
+     * @param now current time
+     * @return true if a status read should be requested (and an attempt is consumed)
+     */
+    private fun isRecoveryDue(pump: Pump, now: Long): Boolean {
+        val lastDataTime = pump.lastDataTime.value
+        // Pump answered in the meantime -> start over
+        if (lastDataTime != lastSeenConnection) {
+            lastSeenConnection = lastDataTime
+            lastRecoveryAttempt = 0
+            recoveryAttempt = 0
+        }
+        // Stays 0 until the pump was reached for the first time (ie. right after an app start).
+        // The first attempt is due immediately then.
+        val since = max(lastRecoveryAttempt, lastDataTime)
+        if (since != 0L && (now - since) < RECOVERY_DELAYS[min(recoveryAttempt, RECOVERY_DELAYS.size - 1)]) return false
+        lastRecoveryAttempt = now
+        recoveryAttempt++
+        val quiet = if (since == 0L) "no connection since app start" else "${T.msecs(now - since).mins()} min without connection"
+        aapsLogger.debug(LTag.CORE, "Pump recovery attempt $recoveryAttempt, $quiet")
+        return true
     }
 }
