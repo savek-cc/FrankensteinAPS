@@ -1,0 +1,279 @@
+From 19103cbe937cae726c1fe43b69f800d8acbb2e37 Mon Sep 17 00:00:00 2001
+From: Timm Korte <korte@korte-ing.de>
+Date: Tue, 6 Jan 2026 20:28:30 +0100
+Subject: [PATCH 07/14] TK: Pump Disconnect for 6h, smaller fixes
+
+---
+ .../queue/CommandQueueImplementation.kt       |  2 +-
+ .../plugins/automation/AutomationPlugin.kt    |  8 --------
+ .../versionChecker/VersionCheckerPlugin.kt    |  2 +-
+ .../general/overview/OverviewMenusImpl.kt     |  2 ++
+ plugins/main/src/main/res/values/strings.xml  |  2 ++
+ .../nightscout/pump/combov2/ComboV2Plugin.kt  | 19 ++++++++++---------
+ .../kotlin/app/aaps/ui/dialogs/LoopDialog.kt  |  8 ++++----
+ ui/src/main/res/layout/dialog_loop.xml        |  4 ++--
+ ui/src/main/res/values-de-rDE/strings.xml     |  3 ++-
+ ui/src/main/res/values/strings.xml            |  3 ++-
+ 10 files changed, 26 insertions(+), 27 deletions(-)
+
+diff --git a/implementation/src/main/kotlin/app/aaps/implementation/queue/CommandQueueImplementation.kt b/implementation/src/main/kotlin/app/aaps/implementation/queue/CommandQueueImplementation.kt
+index 788f8d07e2..7b55dd2411 100644
+--- a/implementation/src/main/kotlin/app/aaps/implementation/queue/CommandQueueImplementation.kt
++++ b/implementation/src/main/kotlin/app/aaps/implementation/queue/CommandQueueImplementation.kt
+@@ -343,7 +343,7 @@ class CommandQueueImplementation @Inject constructor(
+         if (detailedBolusInfo.bolusType == BS.Type.SMB) {
+             add(CommandSMBBolus(injector, detailedBolusInfo, callback))
+         } else {
+-            if (detailedBolusInfo.insulin < 3) {
++            if (detailedBolusInfo.insulin <= 1) {
+                 add(CommandBolus(injector, detailedBolusInfo, callback, type, carbsRunnable))
+                 if (type == CommandType.BOLUS) { // Bring up bolus progress dialog (start here, so the dialog is shown when the bolus is requested,
+                     // not when the Bolus command is starting. The command closes the dialog upon completion).
+diff --git a/plugins/automation/src/main/kotlin/app/aaps/plugins/automation/AutomationPlugin.kt b/plugins/automation/src/main/kotlin/app/aaps/plugins/automation/AutomationPlugin.kt
+index 8e5a42c707..758332de80 100644
+--- a/plugins/automation/src/main/kotlin/app/aaps/plugins/automation/AutomationPlugin.kt
++++ b/plugins/automation/src/main/kotlin/app/aaps/plugins/automation/AutomationPlugin.kt
+@@ -38,10 +38,6 @@ import app.aaps.core.validators.preferences.AdaptiveListPreference
+ import app.aaps.plugins.automation.actions.Action
+ import app.aaps.plugins.automation.actions.ActionAlarm
+ import app.aaps.plugins.automation.actions.ActionCarePortalEvent
+-import app.aaps.plugins.automation.actions.ActionLoopDisable
+-import app.aaps.plugins.automation.actions.ActionLoopEnable
+-import app.aaps.plugins.automation.actions.ActionLoopResume
+-import app.aaps.plugins.automation.actions.ActionLoopSuspend
+ import app.aaps.plugins.automation.actions.ActionNotification
+ import app.aaps.plugins.automation.actions.ActionProfileSwitch
+ import app.aaps.plugins.automation.actions.ActionProfileSwitchPercent
+@@ -395,10 +391,6 @@ class AutomationPlugin @Inject constructor(
+ 
+     fun getActionDummyObjects(): List<Action> {
+         val actions = mutableListOf(
+-            ActionLoopDisable(injector),
+-            ActionLoopEnable(injector),
+-            ActionLoopResume(injector),
+-            ActionLoopSuspend(injector),
+             ActionStopProcessing(injector),
+             ActionStartTempTarget(injector),
+             ActionStopTempTarget(injector),
+diff --git a/plugins/constraints/src/main/kotlin/app/aaps/plugins/constraints/versionChecker/VersionCheckerPlugin.kt b/plugins/constraints/src/main/kotlin/app/aaps/plugins/constraints/versionChecker/VersionCheckerPlugin.kt
+index 3f7a2c629d..37c9edd7d9 100644
+--- a/plugins/constraints/src/main/kotlin/app/aaps/plugins/constraints/versionChecker/VersionCheckerPlugin.kt
++++ b/plugins/constraints/src/main/kotlin/app/aaps/plugins/constraints/versionChecker/VersionCheckerPlugin.kt
+@@ -38,6 +38,6 @@ class VersionCheckerPlugin @Inject constructor(
+ 
+     override fun applyMaxIOBConstraints(maxIob: Constraint<Double>): Constraint<Double> {
+         versionCheckerUtils.triggerCheckVersion()
+-        maxIob
++        return maxIob
+     }
+ }
+diff --git a/plugins/main/src/main/kotlin/app/aaps/plugins/main/general/overview/OverviewMenusImpl.kt b/plugins/main/src/main/kotlin/app/aaps/plugins/main/general/overview/OverviewMenusImpl.kt
+index 7401b1ec27..003e9328e0 100644
+--- a/plugins/main/src/main/kotlin/app/aaps/plugins/main/general/overview/OverviewMenusImpl.kt
++++ b/plugins/main/src/main/kotlin/app/aaps/plugins/main/general/overview/OverviewMenusImpl.kt
+@@ -225,6 +225,7 @@ class OverviewMenusImpl @Inject constructor(
+ 
+         scaleButton.setOnClickListener { v: View ->
+             val popup = PopupMenu(v.context, v)
++            popup.menu.add(Menu.NONE, 3, Menu.NONE, rh.gs(R.string.graph_long_scale_3h))
+             popup.menu.add(Menu.NONE, 6, Menu.NONE, rh.gs(R.string.graph_long_scale_6h))
+             popup.menu.add(Menu.NONE, 12, Menu.NONE, rh.gs(R.string.graph_long_scale_12h))
+             popup.menu.add(Menu.NONE, 18, Menu.NONE, rh.gs(R.string.graph_long_scale_18h))
+@@ -320,6 +321,7 @@ class OverviewMenusImpl @Inject constructor(
+     }
+ 
+     override fun scaleString(rangeToDisplay: Int): String = when (rangeToDisplay) {
++        3    -> rh.gs(R.string.graph_scale_3h)
+         6    -> rh.gs(R.string.graph_scale_6h)
+         12   -> rh.gs(R.string.graph_scale_12h)
+         18   -> rh.gs(R.string.graph_scale_18h)
+diff --git a/plugins/main/src/main/res/values/strings.xml b/plugins/main/src/main/res/values/strings.xml
+index 91bfc9c8dc..ab78592922 100644
+--- a/plugins/main/src/main/res/values/strings.xml
++++ b/plugins/main/src/main/res/values/strings.xml
+@@ -203,10 +203,12 @@
+     <string name="statuslights_bat_warning">Threshold warning pump battery level [%]</string>
+     <string name="statuslights_bat_critical">Threshold critical pump battery level [%]</string>
+     <string name="statuslights_copy_ns">Copy settings from NS</string>
++    <string name="graph_scale_3h">3h</string>
+     <string name="graph_scale_6h">6h</string>
+     <string name="graph_scale_12h">12h</string>
+     <string name="graph_scale_18h">18h</string>
+     <string name="graph_scale_24h">24h</string>
++    <string name="graph_long_scale_3h">3 hours</string>
+     <string name="graph_long_scale_6h">6 hours</string>
+     <string name="graph_long_scale_12h">12 hours</string>
+     <string name="graph_long_scale_18h">18 hours</string>
+diff --git a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt
+index 0492a20b48..7bbfe6ed27 100644
+--- a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt
++++ b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt
+@@ -11,12 +11,15 @@ import androidx.preference.PreferenceFragmentCompat
+ import androidx.preference.PreferenceManager
+ import androidx.preference.PreferenceScreen
+ import app.aaps.core.data.model.BS
++import app.aaps.core.data.model.RM
+ import app.aaps.core.data.model.TE
+ import app.aaps.core.data.plugin.PluginType
+ import app.aaps.core.data.pump.defs.ManufacturerType
+ import app.aaps.core.data.pump.defs.PumpDescription
+ import app.aaps.core.data.pump.defs.PumpType
+ import app.aaps.core.data.pump.defs.TimeChangeType
++import app.aaps.core.data.time.T
++import app.aaps.core.data.ue.Action
+ import app.aaps.core.data.ue.Sources
+ import app.aaps.core.data.ue.ValueWithUnit
+ import app.aaps.core.interfaces.androidPermissions.AndroidPermission
+@@ -30,6 +33,7 @@ import app.aaps.core.interfaces.logging.LTag
+ import app.aaps.core.interfaces.notifications.Notification
+ import app.aaps.core.interfaces.plugin.PluginDescription
+ import app.aaps.core.interfaces.profile.Profile
++import app.aaps.core.interfaces.profile.ProfileFunction
+ import app.aaps.core.interfaces.pump.DetailedBolusInfo
+ import app.aaps.core.interfaces.pump.Pump
+ import app.aaps.core.interfaces.pump.PumpEnactResult
+@@ -116,6 +120,7 @@ import info.nightscout.comboctl.base.Tbr as ComboCtlTbr
+ import info.nightscout.comboctl.main.Pump as ComboCtlPump
+ import info.nightscout.comboctl.main.PumpManager as ComboCtlPumpManager
+ 
++
+ internal const val PUMP_ERROR_TIMEOUT_INTERVAL_MSECS = 1000L * 60 * 5
+ 
+ @Singleton
+@@ -134,7 +139,8 @@ class ComboV2Plugin @Inject constructor(
+     private val androidPermission: AndroidPermission,
+     private val config: Config,
+     private val loop: Loop,
+-    private val pumpEnactResultProvider: Provider<PumpEnactResult>
++    private val pumpEnactResultProvider: Provider<PumpEnactResult>,
++    private val profileFunction: ProfileFunction
+ ) :
+     PumpPluginBase(
+         pluginDescription = PluginDescription()
+@@ -1316,7 +1322,7 @@ class ComboV2Plugin @Inject constructor(
+ 
+         val requestedBolusAmount = requestedInsulinAmount.iuToCctlBolus()
+ 
+-        val pumpEnactResult = instantiator.providePumpEnactResult()
++        val pumpEnactResult = pumpEnactResultProvider.get()
+         pumpEnactResult.success = false
+ 
+         runBlocking {
+@@ -1959,15 +1965,10 @@ class ComboV2Plugin @Inject constructor(
+                 val now = dateUtil.now()
+                 val end = event.timestamp.toEpochMilliseconds() + event.totalDurationMinutes * 60 * 1000
+                 if (end > now) {
++                    val profile = profileFunction.getProfile() ?: return
+                     val suspendForMinutes = ((end - now) / 60 / 1000).toInt() + 1 //add one for good measure as combo time and mobile time might be slightly out of sync
+                     aapsLogger.debug(LTag.PUMP, "Pump reports EB started; amount: ${event.totalBolusAmount}, duration: ${event.totalDurationMinutes} - suspending loop for $suspendForMinutes minutes")
+-                    loop.suspendLoop(
+-                        durationInMinutes = suspendForMinutes,
+-                        action = app.aaps.core.data.ue.Action.SUSPEND,
+-                        source = Sources.Combo,
+-                        note = "extended bolus: suspending loop for $suspendForMinutes minutes",
+-                        listValues = listOf(ValueWithUnit.Minute(suspendForMinutes))
+-                    )
++                    loop.handleRunningModeChange(newRM = RM.Mode.SUSPENDED_BY_USER, durationInMinutes = suspendForMinutes, action = Action.SUSPEND, source = Sources.Combo, profile = profile)
+                 }
+             }
+ 
+diff --git a/ui/src/main/kotlin/app/aaps/ui/dialogs/LoopDialog.kt b/ui/src/main/kotlin/app/aaps/ui/dialogs/LoopDialog.kt
+index 321f445719..f98c276d52 100644
+--- a/ui/src/main/kotlin/app/aaps/ui/dialogs/LoopDialog.kt
++++ b/ui/src/main/kotlin/app/aaps/ui/dialogs/LoopDialog.kt
+@@ -125,7 +125,7 @@ class LoopDialog : DaggerDialogFragment() {
+         binding.overviewDisconnect30m.setOnClickListener { if (showOkCancel) onClickOkCancelEnabled(it) else onClick(it); dismiss() }
+         binding.overviewDisconnect1h.setOnClickListener { if (showOkCancel) onClickOkCancelEnabled(it) else onClick(it); dismiss() }
+         binding.overviewDisconnect2h.setOnClickListener { if (showOkCancel) onClickOkCancelEnabled(it) else onClick(it); dismiss() }
+-        binding.overviewDisconnect3h.setOnClickListener { if (showOkCancel) onClickOkCancelEnabled(it) else onClick(it); dismiss() }
++        binding.overviewDisconnect6h.setOnClickListener { if (showOkCancel) onClickOkCancelEnabled(it) else onClick(it); dismiss() }
+ 
+         // cancel button
+         binding.cancel.setOnClickListener { dismiss() }
+@@ -220,7 +220,7 @@ class LoopDialog : DaggerDialogFragment() {
+             R.id.overview_disconnect_30m -> description = rh.gs(R.string.disconnectpumpfor30m)
+             R.id.overview_disconnect_1h  -> description = rh.gs(R.string.disconnectpumpfor1h)
+             R.id.overview_disconnect_2h  -> description = rh.gs(R.string.disconnectpumpfor2h)
+-            R.id.overview_disconnect_3h  -> description = rh.gs(R.string.disconnectpumpfor3h)
++            R.id.overview_disconnect_6h  -> description = rh.gs(R.string.disconnectpumpfor6h)
+         }
+         activity?.let { activity ->
+             OKDialog.showConfirmation(activity, rh.gs(app.aaps.core.ui.R.string.confirm), description, Runnable {
+@@ -300,8 +300,8 @@ class LoopDialog : DaggerDialogFragment() {
+                 return true
+             }
+ 
+-            R.id.overview_disconnect_3h                   -> {
+-                loop.handleRunningModeChange(newRM = RM.Mode.DISCONNECTED_PUMP, durationInMinutes = 180, action = Action.DISCONNECT, source = Sources.LoopDialog, profile = profile)
++            R.id.overview_disconnect_6h                   -> {
++                loop.handleRunningModeChange(newRM = RM.Mode.DISCONNECTED_PUMP, durationInMinutes = 360, action = Action.DISCONNECT, source = Sources.LoopDialog, profile = profile)
+                 return true
+             }
+         }
+diff --git a/ui/src/main/res/layout/dialog_loop.xml b/ui/src/main/res/layout/dialog_loop.xml
+index 7d1de4178a..b64db60a7b 100644
+--- a/ui/src/main/res/layout/dialog_loop.xml
++++ b/ui/src/main/res/layout/dialog_loop.xml
+@@ -351,7 +351,7 @@
+                     android:text="@string/duration2h" />
+ 
+                 <app.aaps.core.ui.elements.SingleClickButton
+-                    android:id="@+id/overview_disconnect_3h"
++                    android:id="@+id/overview_disconnect_6h"
+                     style="@style/ButtonSmallFontStyle"
+                     android:layout_width="0px"
+                     android:layout_height="fill_parent"
+@@ -360,7 +360,7 @@
+                     android:drawableTop="@drawable/ic_loop_disconnected"
+                     android:paddingStart="5dp"
+                     android:paddingEnd="5dp"
+-                    android:text="@string/duration3h" />
++                    android:text="@string/duration6h" />
+ 
+             </LinearLayout>
+ 
+diff --git a/ui/src/main/res/values-de-rDE/strings.xml b/ui/src/main/res/values-de-rDE/strings.xml
+index a651c592ea..5fa7140d0a 100644
+--- a/ui/src/main/res/values-de-rDE/strings.xml
++++ b/ui/src/main/res/values-de-rDE/strings.xml
+@@ -57,7 +57,7 @@
+     <string name="disconnectpumpfor30m">Trenne Pumpe für 30 min</string>
+     <string name="disconnectpumpfor1h">Trenne Pumpe für 1 h</string>
+     <string name="disconnectpumpfor2h">Trenne Pumpe für 2 h</string>
+-    <string name="disconnectpumpfor3h">Trenne Pumpe für 3 h</string>
++    <string name="disconnectpumpfor6h">Trenne Pumpe für 6 h</string>
+     <string name="resume">Fortsetzen</string>
+     <string name="reconnect">Pumpe erneut verbinden</string>
+     <string name="duration15m">15 Min.</string>
+@@ -65,6 +65,7 @@
+     <string name="duration1h">1 Std.</string>
+     <string name="duration2h">2 Std.</string>
+     <string name="duration3h">3 Std.</string>
++    <string name="duration6h">6 Std.</string>
+     <string name="duration10h">10 Std.</string>
+     <!-- WizardDialog -->
+     <string name="a11_correction_percentage">korrektes Ergebnis mit %</string>
+diff --git a/ui/src/main/res/values/strings.xml b/ui/src/main/res/values/strings.xml
+index 233c677606..aa6c43a43b 100644
+--- a/ui/src/main/res/values/strings.xml
++++ b/ui/src/main/res/values/strings.xml
+@@ -85,7 +85,7 @@
+     <string name="disconnectpumpfor30m">Disconnect pump for 30 min</string>
+     <string name="disconnectpumpfor1h">Disconnect pump for 1 h</string>
+     <string name="disconnectpumpfor2h">Disconnect pump for 2 h</string>
+-    <string name="disconnectpumpfor3h">Disconnect pump for 3 h</string>
++    <string name="disconnectpumpfor6h">Disconnect pump for 6 h</string>
+     <string name="resume">Resume</string>
+     <string name="reconnect">Reconnect Pump</string>
+     <string name="duration15m">15 mins</string>
+@@ -93,6 +93,7 @@
+     <string name="duration1h">1 hour</string>
+     <string name="duration2h">2 hours</string>
+     <string name="duration3h">3 hours</string>
++    <string name="duration6h">6 hours</string>
+     <string name="duration10h">10 hours</string>
+ 
+     <!-- WizardDialog -->
+-- 
+2.55.0
+

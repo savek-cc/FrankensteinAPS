@@ -1,0 +1,112 @@
+From ca395950b88a4e62ce3404784d4e1d2bb2065745 Mon Sep 17 00:00:00 2001
+From: Savek-CC <me@home>
+Date: Sun, 26 Jul 2026 18:02:54 +0200
+Subject: [PATCH 10/14] KeepAlive: don't skip pump status check when no profile
+ switch exists
+
+checkPump() returned right at the start when profileFunction.getRequestedProfile()
+was null. Everything below - the periodic commandQueue.readStatus() and
+localAlertUtils.checkPumpUnreachableAlarm() - was silently dead in that case, so
+an install without a profile switch record never polled the pump and never raised
+a pump unreachable alarm. Observed on a Combo install where the pump suspended
+itself: the loop stopped sending commands, nothing else reconnected, and the
+status stayed stale until the user triggered a manual sync.
+
+Only the profile comparison needs the requested profile, so it is nullable now
+and gates that branch alone.
+---
+ .../app/aaps/receivers/KeepAliveWorker.kt     | 35 ++++++++++++-------
+ .../app/aaps/receivers/KeepAliveWorkerTest.kt | 18 ++++++++++
+ 2 files changed, 40 insertions(+), 13 deletions(-)
+
+diff --git a/app/src/main/kotlin/app/aaps/receivers/KeepAliveWorker.kt b/app/src/main/kotlin/app/aaps/receivers/KeepAliveWorker.kt
+index d585e97d37..23c7d2ed7b 100644
+--- a/app/src/main/kotlin/app/aaps/receivers/KeepAliveWorker.kt
++++ b/app/src/main/kotlin/app/aaps/receivers/KeepAliveWorker.kt
+@@ -188,13 +188,16 @@ class KeepAliveWorker(
+     @VisibleForTesting
+     fun checkPump() {
+         val pump = activePlugin.activePump
+-        val ps = profileFunction.getRequestedProfile() ?: return
+-        val requestedProfile = ProfileSealed.PS(ps, activePlugin)
++        // The profile switch record may be missing (ie. cleaned up from the database). Status
++        // reading and the pump unreachable alarm must keep working in that case, only the profile
++        // comparison below is skipped.
++        val requestedProfile = profileFunction.getRequestedProfile()?.let { ProfileSealed.PS(it, activePlugin) }
+         val runningProfile = profileFunction.getProfile()
+         val lastConnection = pump.lastDataTime
+         val now = dateUtil.now()
+         val isStatusOutdated = lastConnection + STATUS_UPDATE_FREQUENCY < now
+-        val isBasalOutdated = abs(requestedProfile.getBasal() - pump.baseBasalRate) > pump.pumpDescription.basalStep
++        val isBasalOutdated = requestedProfile != null &&
++            abs(requestedProfile.getBasal() - pump.baseBasalRate) > pump.pumpDescription.basalStep
+         aapsLogger.debug(LTag.CORE, "Last connection: " + dateUtil.dateAndTimeString(lastConnection))
+         // Sometimes it can happen that keepalive is not triggered every 5 minutes as it should.
+         // In some cases, it may not even have been started at all.
+@@ -210,18 +213,24 @@ class KeepAliveWorker(
+         if (lastReadStatus != 0L && (now - lastReadStatus).coerceIn(minimumValue = 0, maximumValue = null) <= T.secs(5 * 60 + 30).msecs()) {
+             localAlertUtils.checkPumpUnreachableAlarm(lastConnection, isStatusOutdated, loop.runningMode == RM.Mode.DISCONNECTED_PUMP)
+         }
+-        if (loop.runningMode == RM.Mode.DISCONNECTED_PUMP) {
+-            // do nothing if pump is disconnected
+-        } else if (
+-            runningProfile == null ||
++        val expiredProfileSwitch = runningProfile is ProfileSealed.EPS &&
++            runningProfile.value.originalEnd < now &&
++            runningProfile.value.originalDuration != 0L
++        val profileSwitchNeeded = requestedProfile != null &&
+             (
+-                (!pump.isThisProfileSet(requestedProfile) ||
+-                    !requestedProfile.isEqual(runningProfile) ||
+-                    (runningProfile is ProfileSealed.EPS && runningProfile.value.originalEnd < dateUtil.now() && runningProfile.value.originalDuration != 0L)
+-                    )
+-                    && !commandQueue.isRunning(Command.CommandType.BASAL_PROFILE)
++                runningProfile == null ||
++                    (
++                        (!pump.isThisProfileSet(requestedProfile) ||
++                            !requestedProfile.isEqual(runningProfile) ||
++                            expiredProfileSwitch
++                            )
++                            && !commandQueue.isRunning(Command.CommandType.BASAL_PROFILE)
++                        )
+                 )
+-        ) {
++
++        if (loop.runningMode == RM.Mode.DISCONNECTED_PUMP) {
++            // do nothing if pump is disconnected
++        } else if (profileSwitchNeeded) {
+             rxBus.send(EventProfileSwitchChanged())
+         } else if (isStatusOutdated && !pump.isBusy()) {
+             lastReadStatus = now
+diff --git a/app/src/test/kotlin/app/aaps/receivers/KeepAliveWorkerTest.kt b/app/src/test/kotlin/app/aaps/receivers/KeepAliveWorkerTest.kt
+index ba9c59f61f..c0625ec700 100644
+--- a/app/src/test/kotlin/app/aaps/receivers/KeepAliveWorkerTest.kt
++++ b/app/src/test/kotlin/app/aaps/receivers/KeepAliveWorkerTest.kt
+@@ -124,6 +124,24 @@ class KeepAliveWorkerTest : TestBaseWithProfile() {
+         verify(mockedRxBus, never()).send(any<EventProfileSwitchChanged>())
+     }
+ 
++    @Test
++    fun `checkPump requests status even if no profile switch record exists`() = runBlocking {
++        // Arrange: profile switch record was cleaned up from the database
++        worker = createWorker()
++        whenever(loop.runningMode).thenReturn(RM.Mode.OPEN_LOOP)
++        whenever(profileFunction.getRequestedProfile()).thenReturn(null)
++        whenever(profileFunction.getProfile()).thenReturn(validProfile)
++        testPumpPlugin.lastData = now - T.mins(20).msecs()
++
++        // Act
++        worker.checkPump()
++
++        // Assert
++        verify(commandQueue).readStatus(anyOrNull(), anyOrNull())
++        verify(mockedRxBus, never()).send(any<EventProfileSwitchChanged>())
++        Unit
++    }
++
+     @Test
+     fun `checkAPS schedules device status upload if BG is missing`() = runBlocking {
+         // Arrange
+-- 
+2.55.0
+

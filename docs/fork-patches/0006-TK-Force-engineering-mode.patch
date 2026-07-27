@@ -1,0 +1,34 @@
+From 7bf45332bf50855dd98c1c4a5eace82a001662af Mon Sep 17 00:00:00 2001
+From: Timm Korte <korte@korte-ing.de>
+Date: Wed, 30 Jul 2025 18:09:33 +0200
+Subject: [PATCH 06/14] TK: Force engineering mode
+
+---
+ app/src/main/kotlin/app/aaps/implementations/ConfigImpl.kt | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/app/src/main/kotlin/app/aaps/implementations/ConfigImpl.kt b/app/src/main/kotlin/app/aaps/implementations/ConfigImpl.kt
+index 72ca8b625f..d746c1468f 100644
+--- a/app/src/main/kotlin/app/aaps/implementations/ConfigImpl.kt
++++ b/app/src/main/kotlin/app/aaps/implementations/ConfigImpl.kt
+@@ -46,8 +46,8 @@ class ConfigImpl @Inject constructor(
+     private var enableAutotune: Boolean? = null
+     private var disableLeakCanary: Boolean? = null
+ 
+-    override fun isEngineeringModeOrRelease(): Boolean = if (!APS) true else isEngineeringMode() || !isDev()
+-    override fun isEngineeringMode(): Boolean = isEngineeringMode ?: (fileListProvider.get().ensureExtraDirExists()?.findFile("engineering_mode") != null).also { isEngineeringMode = it }
++    override fun isEngineeringModeOrRelease(): Boolean = true
++    override fun isEngineeringMode(): Boolean = true
+     override fun isUnfinishedMode(): Boolean = isUnfinishedMode ?: (fileListProvider.get().ensureExtraDirExists()?.findFile("unfinished_mode") != null).also { isUnfinishedMode = it }
+     override fun isDev(): Boolean = (VERSION.contains("-") || VERSION.matches(Regex(".*[a-zA-Z]+.*"))) && !VERSION.contains("-beta") && !VERSION.contains("-rc")
+     override fun showUserActionsOnWatchOnly(): Boolean = showUserActionsOnWatchOnly ?: (fileListProvider.get().ensureExtraDirExists()?.findFile("show_user_actions_on_watch_only") != null).also { showUserActionsOnWatchOnly = it }
+@@ -55,4 +55,4 @@ class ConfigImpl @Inject constructor(
+     override fun doNotSendSmsOnProfileChange(): Boolean = doNotSendSmsOnProfileChange ?: (fileListProvider.get().ensureExtraDirExists()?.findFile("do_not_send_sms_on_profile_change") != null).also { doNotSendSmsOnProfileChange = it }
+     override fun enableAutotune(): Boolean = enableAutotune ?: (fileListProvider.get().ensureExtraDirExists()?.findFile("enable_autotune") != null).also { enableAutotune = it }
+     override fun disableLeakCanary(): Boolean = disableLeakCanary ?: (fileListProvider.get().ensureExtraDirExists()?.findFile("disable_leakcanary") != null).also { disableLeakCanary = it }
+-}
+\ No newline at end of file
++}
+-- 
+2.55.0
+

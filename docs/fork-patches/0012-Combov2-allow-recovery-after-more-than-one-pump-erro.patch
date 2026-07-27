@@ -1,0 +1,87 @@
+From 80cfcf62708c0d52deec7bbf9acf341fec1e40fa Mon Sep 17 00:00:00 2001
+From: Savek-CC <me@home>
+Date: Sun, 26 Jul 2026 18:03:58 +0200
+Subject: [PATCH 12/14] Combov2: allow recovery after more than one pump error
+
+notifyAboutComboAlert() sets pumpErrorObserved, which blocks connect() until
+either the user presses Refresh or the timeout started in startPumpErrorTimeout()
+expires. That job cleared the flag but never cleared pumpErrorTimeoutJob, and
+startPumpErrorTimeout() returns early while the job is non-null - so after the
+first timeout no further one could ever be armed and the driver stayed blocked
+until a manual sync.
+
+Clear the job when it expires, and grow the retry delay 5 -> 10 -> 15 -> 30 min
+instead of retrying every 5 min while the user is still fixing the pump. The
+delay is reset when the pump could be reached or the flag is cleared manually.
+---
+ .../nightscout/pump/combov2/ComboV2Plugin.kt  | 24 ++++++++++++++++---
+ 1 file changed, 21 insertions(+), 3 deletions(-)
+
+diff --git a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt
+index 7bbfe6ed27..4757efad6a 100644
+--- a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt
++++ b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt
+@@ -121,7 +121,12 @@ import info.nightscout.comboctl.main.Pump as ComboCtlPump
+ import info.nightscout.comboctl.main.PumpManager as ComboCtlPumpManager
+ 
+ 
+-internal const val PUMP_ERROR_TIMEOUT_INTERVAL_MSECS = 1000L * 60 * 5
++/**
++ * Delays before retrying after the pump reported an error. The user has to fix the cause at the
++ * pump, which can take a while, so the retries are spaced further and further apart. The last value
++ * is used for all further attempts.
++ */
++internal val PUMP_ERROR_TIMEOUT_INTERVALS_MSECS = longArrayOf(1000L * 60 * 5, 1000L * 60 * 10, 1000L * 60 * 15, 1000L * 60 * 30)
+ 
+ @Singleton
+ class ComboV2Plugin @Inject constructor(
+@@ -191,6 +196,10 @@ class ComboV2Plugin @Inject constructor(
+     private var pumpErrorObserved = false
+     private var pumpErrorTimeoutJob: Job? = null
+ 
++    // Index into PUMP_ERROR_TIMEOUT_INTERVALS_MSECS. Increased with every retry, reset as soon as
++    // the pump could be reached again.
++    private var pumpErrorTimeoutIndex = 0
++
+     // Set to true if a disconnect request came in while the driver
+     // was in the Connecting, CheckingPump, or ExecutingCommand
+     // state (in other words, while isBusy() was returning true).
+@@ -1884,10 +1893,16 @@ class ComboV2Plugin @Inject constructor(
+         if (pumpErrorTimeoutJob != null)
+             return
+ 
++        val timeout = PUMP_ERROR_TIMEOUT_INTERVALS_MSECS[min(pumpErrorTimeoutIndex, PUMP_ERROR_TIMEOUT_INTERVALS_MSECS.size - 1)]
++        pumpErrorTimeoutIndex++
++
+         pumpErrorTimeoutJob = pumpCoroutineScope.launch {
+-            delay(PUMP_ERROR_TIMEOUT_INTERVAL_MSECS)
+-            aapsLogger.info(LTag.PUMP, "Clearing pumpErrorObserved flag after timeout was reached")
++            delay(timeout)
++            aapsLogger.info(LTag.PUMP, "Clearing pumpErrorObserved flag after timeout of $timeout ms was reached")
+             pumpErrorObserved = false
++            // Clear the job to be able to arm a new timeout in case the pump still reports the
++            // error. Without this, the retry below would be the only one that ever happens.
++            pumpErrorTimeoutJob = null
+             commandQueue.readStatus(rh.gs(R.string.combov2_refresh_pump_status_after_error), null)
+         }
+     }
+@@ -1895,6 +1910,7 @@ class ComboV2Plugin @Inject constructor(
+     private fun stopPumpErrorTimeout() {
+         pumpErrorTimeoutJob?.cancel()
+         pumpErrorTimeoutJob = null
++        pumpErrorTimeoutIndex = 0
+     }
+ 
+     private fun updateBaseBasalRateUI() {
+@@ -2273,6 +2289,8 @@ class ComboV2Plugin @Inject constructor(
+     private fun updateLastConnectionTimestamp() {
+         lastConnectionTimestamp = System.currentTimeMillis()
+         _lastConnectionTimestampUIFlow.value = lastConnectionTimestamp
++        // Pump could be reached, so the next error starts over with the shortest retry delay.
++        pumpErrorTimeoutIndex = 0
+     }
+ 
+     private fun getAlertDescription(alert: AlertScreenContent) =
+-- 
+2.55.0
+
