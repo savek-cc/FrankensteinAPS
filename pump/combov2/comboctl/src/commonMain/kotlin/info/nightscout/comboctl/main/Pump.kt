@@ -2080,7 +2080,9 @@ class Pump(
         // this, the retry would look for a menu entry that does not exist in the new state.
         updateStatusByReadingMainAndQuickinfoScreens(switchStatesIfNecessary = false)
 
-        if (pumpSuspended == !shouldRun) {
+        val stateChanged = pumpSuspended != !shouldRun
+
+        if (!stateChanged) {
             logger(LogLevel.DEBUG) {
                 "Pump is already ${if (shouldRun) "running" else "stopped"}; only reconciling the TBR state"
             }
@@ -2109,6 +2111,15 @@ class Pump(
         // Done on every pass, including the one after an alert caused a command retry, since the
         // recorded TBR has to describe the actual pump state, not the path that got us there.
         syncTbrStateWithPumpRunningState()
+
+        if (stateChanged) {
+            // Stopping the pump terminates whatever it was delivering, and the pump writes that to
+            // its history - the end of a cut short extended or multiwave bolus in particular, with
+            // the amount that really went in. Read the delta right here instead of leaving it to
+            // the next connect, otherwise the caller keeps assuming for minutes that a bolus is
+            // still running which the pump ended long ago.
+            scanHistoryDeltaForBolusToEmit(fetchHistoryDelta())
+        }
     }
 
     // While the Combo is stopped it delivers no insulin at all, which is equivalent to a 0% TBR.
