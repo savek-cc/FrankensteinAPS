@@ -111,10 +111,36 @@ lassen sich jederzeit erzeugen:
 git format-patch origin/dev..HEAD --output-directory /tmp/fork-stack
 ```
 
+## Nachtrag 2026-07-27: EB-Abbruch und Multiwave
+
+Drei Commits, die den Extended-Bolus-Komplex abschließen:
+
+| Commit | Inhalt |
+|---|---|
+| `10100e0755` | Treiber liest die History-Delta direkt nach einem Stop/Start, statt bis zum nächsten Verbindungsaufbau zu warten |
+| `79cee665a7` | `cancelExtendedBolus()` über Pumpe stoppen → starten |
+| `d592b3ea16` | Multiwave-Boli werden als Bolus + Extended Bolus gebucht |
+
+Zum Abbruch: Eine laufende TBR wird von der Pumpe mit abgebrochen und **nicht** wiederhergestellt —
+AAPS sieht den Pumpenzustand und setzt im nächsten Loop-Lauf mit aktuellen Daten neu. Zwischen Stop
+und Start gibt es einige Sekunden ohne jede Abgabe. Die Pumpe wird nur angefasst, wenn laut
+`expectedPumpState()` wirklich ein EB läuft und die Pumpe nicht ohnehin suspendiert ist; im zweiten
+Fall würde ein `startPump()` eine Abgabe wiederaufnehmen, die niemand angefordert hat.
+
+Zum Multiwave: AAPS hat dafür kein Datenmodell (die Tabelle `multiwaveBolusLinks` wird beim
+DB-Upgrade verworfen). Medtronic und Insight teilen einen Multiwave in Bolus + Extended Bolus auf;
+der Combo-Treiber macht es jetzt genauso. Beide Events melden einen Gesamtbetrag **inklusive**
+Sofortanteil — an der Prüfpumpe gemessen, siehe Commit-Message.
+
 ## Was noch offen ist
 
-- **`cancelExtendedBolus()`** ist weiterhin nicht implementiert. Der Treiber kann die Pumpe seit
-  `a88871666a` stoppen und wieder starten, was der einzige funktionierende Weg wäre; die Anbindung in
-  `ComboV2Plugin` und das Wiederherstellen einer laufenden TBR danach fehlen noch.
-- **Multiwave-Events** (`MultiwaveBolusStarted`/`-Ended`) werden im `ComboV2Plugin` nach wie vor nicht
-  behandelt. Ein an der Pumpe von Hand abgegebener Multiwave landet damit nicht in der Datenbank.
+- **Loop-Suspend beim Multiwave:** Ein an der Pumpe von Hand abgegebener Multiwave setzt den Loop
+  nicht aus, ein von AAPS gestarteter Extended Bolus schon (Feature C). Die Begründung — verzögert
+  abgegebenes Insulin ist Plan, nicht IOB — gilt für beide gleichermaßen. Bewusst offen gelassen.
+- **Sofortanteil bei früh abgebrochenem Multiwave:** Der Bolus-Datensatz entsteht aus dem
+  Start-Event mit der programmierten Menge. Wird ein Multiwave abgebrochen, während der Sofortanteil
+  noch läuft, steht dort etwas zu viel. Der verzögerte Anteil stammt immer aus dem End-Event und ist
+  exakt.
+- **Laufzeittest der AAPS-Anbindung:** Der Stop/Start-Zyklus und die History-Semantik sind an der
+  Prüfpumpe gemessen, die Anbindung in AAPS selbst nicht — dafür müsste die Prüfpumpe an ein Telefon
+  gekoppelt werden.
