@@ -3,13 +3,17 @@ package info.nightscout.pump.combov2
 import android.content.Context
 import android.content.Intent
 import app.aaps.core.data.model.BS
+import app.aaps.core.data.model.RM
 import app.aaps.core.data.model.TE
 import app.aaps.core.data.plugin.PluginType
+import app.aaps.core.data.ue.Action
+import app.aaps.core.data.ue.Sources
 import app.aaps.core.data.pump.defs.ManufacturerType
 import app.aaps.core.data.pump.defs.PumpDescription
 import app.aaps.core.data.pump.defs.PumpType
 import app.aaps.core.data.pump.defs.TimeChangeType
 import app.aaps.core.interfaces.configuration.Config
+import app.aaps.core.interfaces.aps.Loop
 import app.aaps.core.interfaces.constraints.Constraint
 import app.aaps.core.interfaces.constraints.PluginConstraints
 import app.aaps.core.interfaces.logging.AAPSLogger
@@ -28,6 +32,7 @@ import app.aaps.core.interfaces.pump.PumpProfile
 import app.aaps.core.interfaces.pump.PumpRate
 import app.aaps.core.interfaces.pump.PumpSync
 import app.aaps.core.interfaces.pump.defs.fillFor
+import app.aaps.core.interfaces.profile.ProfileFunction
 import app.aaps.core.interfaces.pump.mapState
 import app.aaps.core.interfaces.queue.CommandQueue
 import app.aaps.core.interfaces.resources.ResourceHelper
@@ -128,7 +133,9 @@ class ComboV2Plugin @Inject constructor(
     private val notificationManager: NotificationManager,
     private val config: Config,
     private val pumpEnactResultProvider: Provider<PumpEnactResult>,
-    private val bolusProgressData: BolusProgressData
+    private val bolusProgressData: BolusProgressData,
+    private val loop: Loop,
+    private val profileFunction: ProfileFunction
 ) :
     PumpPluginBase(
         pluginDescription = PluginDescription()
@@ -1900,6 +1907,30 @@ class ComboV2Plugin @Inject constructor(
                         PumpType.ACCU_CHEK_COMBO,
                         serialNumber()
                     )
+
+                    // The insulin an extended bolus still has to deliver is a plan, not IOB. Dosing
+                    // on top of it would dose on a basis that is not there yet, so the loop is
+                    // paused until the bolus is through. SUSPENDED_BY_USER runs out on its own when
+                    // the duration elapses; it is not tied to the pump state like SUSPENDED_BY_PUMP.
+                    val now = dateUtil.now()
+                    val end = event.timestamp.toEpochMilliseconds() + event.totalDurationMinutes.toLong() * 60 * 1000
+                    val profile = profileFunction.getProfile()
+                    if ((end > now) && (profile != null)) {
+                        // One minute extra because the pump clock and the phone clock can be slightly apart.
+                        val suspendForMinutes = ((end - now) / 60 / 1000).toInt() + 1
+                        aapsLogger.debug(
+                            LTag.PUMP,
+                            "Pump reports extended bolus started; amount: ${event.totalBolusAmount} duration: ${event.totalDurationMinutes} min" +
+                                " -> suspending loop for $suspendForMinutes min"
+                        )
+                        loop.handleRunningModeChange(
+                            newRM = RM.Mode.SUSPENDED_BY_USER,
+                            durationInMinutes = suspendForMinutes,
+                            action = Action.SUSPEND,
+                            source = Sources.Combo,
+                            profile = profile
+                        )
+                    }
                 }
             }
 
