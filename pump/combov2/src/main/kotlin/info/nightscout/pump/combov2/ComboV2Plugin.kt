@@ -1938,8 +1938,22 @@ class ComboV2Plugin @Inject constructor(
      *
      * Insulin that an extended or multiwave bolus still has to deliver is a plan, not IOB. A TBR or
      * an SMB on top of it would dose on a basis that is not there yet, so the loop is paused until
-     * the bolus is through. [RM.Mode.SUSPENDED_BY_USER] expires on its own when the duration
-     * elapses and is not re-derived from the pump state, unlike [RM.Mode.SUSPENDED_BY_PUMP].
+     * the bolus is through.
+     *
+     * [RM.Mode.SUSPENDED_BY_USER] is used because it is the only temporary mode that fits. The
+     * others actively do the wrong thing here:
+     * - [RM.Mode.SUPER_BOLUS] and [RM.Mode.DISCONNECTED_PUMP] are zero-delivery modes. Entering one
+     *   forces a 0% TBR *and cancels a running extended bolus* (see `ReconcilerDecision.decide`),
+     *   which would undo the very bolus this pause is meant to protect.
+     * - [RM.Mode.SUSPENDED_BY_PUMP] is owned by `LoopPlugin.runningModePreCheck()`, which derives it
+     *   from `Pump.isSuspended()` and would revert it at once because the pump is not suspended.
+     * - [RM.Mode.SUSPENDED_BY_DST] belongs to the DST helper, and the loop only allows
+     *   DISCONNECTED_PUMP as a follow-up mode, so the user could not end the pause by hand.
+     *
+     * SUSPENDED_BY_USER cancels a running TBR on entry, leaves the basal rate running - which the
+     * bolus needs - expires on its own, and allows RESUME. Only its label is inaccurate: the UI
+     * reads "loop suspended" although the driver asked for it, which is why the source is recorded
+     * as [Sources.Combo].
      *
      * @param startTimestamp when the pump started the bolus, in milliseconds
      * @param totalDurationMinutes duration the bolus was programmed with
