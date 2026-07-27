@@ -4,11 +4,15 @@ Gemessen am 2026-07-27 an Prüfpumpe `PUMP_41382078` (`00:0e:2f:80:9e:4b`) mit d
 `bolusCancelTest` aus dem ComboCtl-Projekt, direkt auf `PumpIO` (Kommandomodus), ohne die
 `Pump`-Zustandsmaschine. Rohprotokolle: Scratchpad-Logs `30-*` bis `74-*`.
 
-## Ergebnis in einem Satz
+## Ergebnis in zwei Sätzen
 
-**Nein.** Weder ein reiner Extended Bolus noch der verzögerte Anteil eines Multiwave lässt sich über
-`CMD_CANCEL_BOLUS` abbrechen — unabhängig vom übergebenen Bolustyp. Der Umweg „Extended Bolus als
-Multiwave nachbilden, damit er abbrechbar wird" funktioniert nicht.
+Über `CMD_CANCEL_BOLUS` **nein** — weder ein reiner Extended Bolus noch der verzögerte Anteil eines
+Multiwave lässt sich damit abbrechen, unabhängig vom übergebenen Bolustyp; der Umweg „Extended Bolus
+als Multiwave nachbilden" funktioniert nicht.
+
+Über **Stoppen und Starten der Pumpe schon** — und beides ist entgegen der bisherigen Annahme
+**per Bluetooth möglich**, mit RT-Tastendrücken. Die Pumpe meldet dabei die tatsächlich abgegebene
+Menge, sodass die Buchung in AAPS exakt bleibt.
 
 ## Messreihe
 
@@ -31,6 +35,42 @@ Entscheidend ist die Kombination aus 8 und 10: Die Pumpe **weiß**, dass der Mul
 solange dieser abgegeben wird. Ist er durch — bei 0,1 IE nach Sekundenbruchteilen — gibt es nichts
 mehr abzubrechen.
 
+## Der Stopp-Weg funktioniert — inklusive Wiederanlauf per Bluetooth
+
+Gemessen mit RT-Tastendrücken (`rtpress`), während ein Multiwave 0,6 IE / 0,1 IE sofort / 15 min
+lief:
+
+| Schritt | Bildschirm danach |
+|---|---|
+| Ausgangslage | `MainScreen(ExtendedOrMultiwaveBolus(remainingBolusDurationInMinutes=12, isExtendedBolus=false, remainingBolusAmount=400))` |
+| `MENU` | `StopPumpMenuScreen` |
+| `CHECK` | `AlertScreen(Warning(code=8, state=TO_SNOOZE))` |
+| `CHECK` (quittieren) | `QuickinfoMainScreen(availableUnits=135, reservoirState=FULL)` |
+| Hauptbildschirm | `MainScreen(content=Stopped(...))` — **Pumpe gestoppt, Bolus beendet** |
+| `MENU` | `UnrecognizedScreen` (das Start-Menü; comboctls Parser kennt es nicht) |
+| `CHECK` | `MainScreen(content=Normal(activeBasalProfileNumber=1, currentBasalRateFactor=80))` — **Pumpe läuft wieder** |
+
+Danach im Kommandomodus bestätigt: `pumpStatus=RUNNING`, keine Fehler/Warnungen, History-Delta leer
+(Stopp und Start erzeugen selbst keine History-Einträge).
+
+**Damit ist die bisherige Annahme widerlegt, ein Neustart sei per Bluetooth nicht möglich.** Beide
+Richtungen gehen über dieselbe Mechanik: Menü aufrufen, mit `CHECK` bestätigen.
+
+### Die Buchung beim Abbruch stimmt
+
+Der abgebrochene Multiwave hinterlässt exakte Werte statt Schätzungen:
+
+```
+#1115  08:29:51  MultiwaveBolusStarted(totalBolusAmount=6, immediateBolusAmount=1, totalDurationMinutes=15)
+#1121  08:32:33  MultiwaveBolusEnded  (totalBolusAmount=2, immediateBolusAmount=1, totalDurationMinutes=3)
+```
+
+Angefordert waren 0,6 IE über 15 min; nach rund 2,7 Minuten kam der Stopp. Die Pumpe bucht
+**0,2 IE tatsächlich abgegeben** (0,1 sofort + 0,1 vom verzögerten Anteil) und **3 Minuten
+tatsächliche Laufzeit**. Genau diese Zahl braucht
+`syncStopExtendedBolusWithPumpId(timestamp, amount, …)` — die Fork-Erweiterung um den
+`amount`-Parameter ist damit messtechnisch gerechtfertigt.
+
 ## Was das für den ursprünglichen Plan heißt
 
 Die Idee war: Extended Bolus als Multiwave mit Sofortanteil 0 abgeben, weil `MULTI_WAVE` ein
@@ -41,9 +81,29 @@ gültiger Cancel-Typ ist. Beide Voraussetzungen sind widerlegt:
 2. Auch mit gültigem Sofortanteil bringt der Multiwave keinen abbrechbaren verzögerten Anteil.
 
 Damit bleibt es bei dem, was comboctl in `Pump.kt:1489-1493` dokumentiert: Der verzögerte Anteil
-kann nur durch **Stoppen und Neustarten der Pumpe** beendet werden. Ob das über Bluetooth möglich
-ist, ist weiterhin offen (comboctl steuert das Stop-Menü nicht an; AAPS hat keine allgemeine
-Stop/Start-Schnittstelle).
+kann nur durch **Stoppen und Neustarten der Pumpe** beendet werden — was, wie oben gemessen, per
+Bluetooth funktioniert.
+
+## Was für eine Umsetzung in AAPS noch fehlt
+
+1. **comboctl kann die Pumpe nicht stoppen/starten.** Das Stop-Menü wird nur erkannt, nie
+   angesteuert; das Start-Menü kennt der Parser gar nicht (`UnrecognizedScreen`). Nötig wären eine
+   RT-Navigation zu beiden Menüs, ein `ParsedScreen` für das Start-Menü und das Quittieren der
+   W8-Warnung, die beim Stoppen erscheint.
+2. **AAPS hat keine allgemeine Stop/Start-Schnittstelle.** `CommandStopPump` ist auf
+   `if (pump is Insight)` verdrahtet; für die Combo müsste `cancelExtendedBolus()` die Sequenz
+   selbst fahren.
+3. **`ComboV2Plugin` behandelt Multiwave-Events überhaupt nicht.** Zu
+   `MultiwaveBolusStarted`/`MultiwaveBolusEnded` gibt es keine Zeile — ein so abgegebener Bolus käme
+   nicht in die Datenbank. Mit den getrennten Mengen im Event ließe sich sauber buchen: Sofortanteil
+   als Bolus, `total − immediate` als Extended Bolus.
+4. **Nebenwirkungen des Stopps sind zu behandeln.** Der Stopp beendet auch eine laufende TBR
+   (comboctl meldet das als `reportPumpSuspendedTbr`), und zwischen Stopp und Start liegt eine
+   basalfreie Lücke von einigen Sekunden. Für einen Loop ist das kein Nebeneffekt, den man
+   stillschweigend in Kauf nimmt — er gehört in die Buchung und in die Anzeige.
+5. **Fehlercodes differenzieren.** `0xF636` heißt „es läuft schon ein Bolus", „Pumpe gestoppt" oder
+   „Bolusart deaktiviert"; `0xF60A` heißt „nichts abzubrechen". Beide sollten dem Nutzer
+   unterschiedlich gemeldet werden.
 
 ## Nebenbefunde für die AAPS-Umsetzung
 
