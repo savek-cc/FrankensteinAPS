@@ -2,6 +2,7 @@ package app.aaps.implementation.queue
 
 import android.text.Spanned
 import app.aaps.annotations.OpenForTesting
+import androidx.annotation.VisibleForTesting
 import app.aaps.core.data.model.BS
 import app.aaps.core.data.model.EPS
 import app.aaps.core.data.model.PS
@@ -77,6 +78,13 @@ import javax.inject.Inject
 import javax.inject.Provider
 import javax.inject.Singleton
 import kotlin.time.Duration.Companion.milliseconds
+
+// Boluses above this amount are not delivered at once but programmed into the pump as an extended
+// bolus. See CommandQueueImplementation.extendedBolusDurationFor().
+private const val EXTENDED_BOLUS_ABOVE_U = 1.0
+private const val EXTENDED_BOLUS_LONGER_ABOVE_U = 6.0
+private const val EXTENDED_BOLUS_MINUTES = 15
+private const val EXTENDED_BOLUS_LONGER_MINUTES = 30
 
 @OpenForTesting
 @Singleton
@@ -410,13 +418,21 @@ class CommandQueueImplementation @Inject constructor(
             removeAll(type)
             // apply constraints
             detailedBolusInfo.insulin = constraintChecker.applyBolusConstraints(ConstraintObject(detailedBolusInfo.insulin, aapsLogger)).value()
-            val bolusGeneration = bolusProgressData.start(detailedBolusInfo.insulin, isSMB = detailedBolusInfo.bolusType === BS.Type.SMB, isPriming = detailedBolusInfo.bolusType == BS.Type.PRIMING)
-            if (detailedBolusInfo.bolusType == BS.Type.SMB) {
-                add(CommandSMBBolus(aapsLogger, rh, dateUtil, activePlugin, persistenceLayer, preferences, bolusProgressData, pumpEnactResultProvider, detailedBolusInfo, cb, bolusGeneration))
+            val extendedBolusDuration = extendedBolusDurationFor(detailedBolusInfo)
+            if (extendedBolusDuration != null) {
+                // Neither a progress dialog nor a Wear notification here: the pump delivers this on
+                // its own, AAPS disconnects right away and there is no progress to follow.
+                aapsLogger.debug(LTag.PUMPQUEUE, "Delivering ${detailedBolusInfo.insulin} U as an extended bolus over $extendedBolusDuration min")
+                add(CommandExtendedBolus(aapsLogger, rh, activePlugin, pumpEnactResultProvider, detailedBolusInfo.insulin, extendedBolusDuration, cb))
             } else {
-                add(CommandBolus(aapsLogger, rh, activePlugin, pumpEnactResultProvider, bolusProgressData, detailedBolusInfo, cb, type, bolusGeneration))
-                if (type == CommandType.BOLUS) { // Notify Wear about upcoming bolus
-                    rxBus.send(EventMobileToWear(EventData.BolusProgress(percent = 0, status = rh.gs(app.aaps.core.ui.R.string.goingtodeliver, detailedBolusInfo.insulin))))
+                val bolusGeneration = bolusProgressData.start(detailedBolusInfo.insulin, isSMB = detailedBolusInfo.bolusType === BS.Type.SMB, isPriming = detailedBolusInfo.bolusType == BS.Type.PRIMING)
+                if (detailedBolusInfo.bolusType == BS.Type.SMB) {
+                    add(CommandSMBBolus(aapsLogger, rh, dateUtil, activePlugin, persistenceLayer, preferences, bolusProgressData, pumpEnactResultProvider, detailedBolusInfo, cb, bolusGeneration))
+                } else {
+                    add(CommandBolus(aapsLogger, rh, activePlugin, pumpEnactResultProvider, bolusProgressData, detailedBolusInfo, cb, type, bolusGeneration))
+                    if (type == CommandType.BOLUS) { // Notify Wear about upcoming bolus
+                        rxBus.send(EventMobileToWear(EventData.BolusProgress(percent = 0, status = rh.gs(app.aaps.core.ui.R.string.goingtodeliver, detailedBolusInfo.insulin))))
+                    }
                 }
             }
             notifyAboutNewCommand()
@@ -440,6 +456,34 @@ class CommandQueueImplementation @Inject constructor(
             }
         }
         return result
+    }
+
+    /**
+     * Decides whether a bolus is programmed into the pump as an extended bolus instead of being
+     * delivered at once, and over how long.
+     *
+     * The pump delivers mechanically slowly. During a standard bolus the phone has to stay
+     * connected for the whole time and shows a progress dialog, which ties the user to the phone.
+     * Programmed as an extended bolus, the pump does the work on its own and AAPS can disconnect
+     * immediately. Spreading a meal bolus of this size over 15 or 30 minutes is intended, not a
+     * side effect.
+     *
+     * Only manual and wizard boluses take this route. An SMB has to be immediate to be a correction
+     * at all, and a priming bolus has to reach the cannula now rather than over half an hour. Pumps
+     * that cannot do extended boluses keep delivering everything at once.
+     *
+     * @param detailedBolusInfo the requested bolus, after constraints were applied
+     * @return duration in minutes, or null to deliver the bolus normally
+     */
+    @VisibleForTesting
+    internal fun extendedBolusDurationFor(detailedBolusInfo: DetailedBolusInfo): Int? {
+        if (detailedBolusInfo.bolusType != BS.Type.NORMAL) return null
+        if (!activePlugin.activePump.pumpDescription.isExtendedBolusCapable) return null
+        return when {
+            detailedBolusInfo.insulin <= EXTENDED_BOLUS_ABOVE_U        -> null
+            detailedBolusInfo.insulin <= EXTENDED_BOLUS_LONGER_ABOVE_U -> EXTENDED_BOLUS_MINUTES
+            else                                                       -> EXTENDED_BOLUS_LONGER_MINUTES
+        }
     }
 
     override suspend fun stopPump(): PumpEnactResult {
