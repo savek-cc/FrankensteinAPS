@@ -80,6 +80,8 @@ internal val rtNavigationGraph = Graph<KClassifier, RTEdgeValue>().apply {
     // to connect them below.
     val mainNode = node(ParsedScreen.MainScreen::class)
     val quickinfoNode = node(ParsedScreen.QuickinfoMainScreen::class)
+    val stopPumpMenuNode = node(ParsedScreen.StopPumpMenuScreen::class)
+    val startPumpMenuNode = node(ParsedScreen.StartPumpMenuScreen::class)
     val tbrMenuNode = node(ParsedScreen.TemporaryBasalRateMenuScreen::class)
     val tbrPercentageNode = node(ParsedScreen.TemporaryBasalRatePercentageScreen::class)
     val tbrDurationNode = node(ParsedScreen.TemporaryBasalRateDurationScreen::class)
@@ -102,6 +104,20 @@ internal val rtNavigationGraph = Graph<KClassifier, RTEdgeValue>().apply {
 
     // Main screen and quickinfo.
     connectBidirectionally(RTEdgeValue(RTNavigationButton.CHECK), RTEdgeValue(RTNavigationButton.BACK), mainNode, quickinfoNode)
+
+    // The stop and start pump menus are the first entry in the menu carousel, and which of
+    // the two is present depends on whether the Combo currently runs or is stopped. Pressing
+    // CHECK on them switches the pump between these states (see Pump.stopPump / Pump.startPump).
+    connectBidirectionally(
+        RTEdgeValue(RTNavigationButton.MENU, RTEdgeValue.EdgeValidityCondition.ONLY_IF_COMBO_RUNNING),
+        RTEdgeValue(RTNavigationButton.BACK, RTEdgeValue.EdgeValidityCondition.ONLY_IF_COMBO_RUNNING),
+        mainNode, stopPumpMenuNode
+    )
+    connectBidirectionally(
+        RTEdgeValue(RTNavigationButton.MENU, RTEdgeValue.EdgeValidityCondition.ONLY_IF_COMBO_STOPPED),
+        RTEdgeValue(RTNavigationButton.BACK, RTEdgeValue.EdgeValidityCondition.ONLY_IF_COMBO_STOPPED),
+        mainNode, startPumpMenuNode
+    )
 
     connectBidirectionally(
         RTEdgeValue(RTNavigationButton.MENU), RTEdgeValue(RTNavigationButton.BACK),
