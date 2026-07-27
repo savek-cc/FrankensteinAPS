@@ -37,6 +37,7 @@ data class OapsProfile(
     var enableSMB_after_carbs: Boolean,
     var maxSMBBasalMinutes: Int,
     var maxUAMSMBBasalMinutes: Int,
+    var smbPercent: Int,
     var bolus_increment: Double,
     var carbsReqThreshold: Int,
     var current_basal: Double,

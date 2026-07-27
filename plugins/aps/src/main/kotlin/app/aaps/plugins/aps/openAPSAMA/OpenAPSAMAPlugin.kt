@@ -224,6 +224,7 @@ class OpenAPSAMAPlugin @Inject constructor(
             enableSMB_after_carbs = false, // not used
             maxSMBBasalMinutes = 0, // not used
             maxUAMSMBBasalMinutes = 0, // not used
+            smbPercent = 0, // not used
             bolus_increment = pump.pumpDescription.bolusStep, // not used
             carbsReqThreshold = 0, // not used
             current_basal = ch.fromPump(activePlugin.activePump.baseBasalRate),

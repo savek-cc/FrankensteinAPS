@@ -1156,9 +1156,10 @@ class DetermineBasalSMB @Inject constructor(
                     consoleError.add("profile.maxSMBBasalMinutes: ${profile.maxSMBBasalMinutes} profile.current_basal: ${profile.current_basal}")
                     maxBolus = round(profile.current_basal * profile.maxSMBBasalMinutes / 60, 1)
                 }
-                // bolus 1/2 the insulinReq, up to maxBolus, rounding down to nearest bolus increment
+                // bolus the configured share of insulinReq, up to maxBolus, rounding down to nearest bolus increment
                 val roundSMBTo = 1 / profile.bolus_increment
-                val microBolus = Math.floor(Math.min(insulinReq / 2, maxBolus) * roundSMBTo) / roundSMBTo
+                consoleError.add("profile.smbPercent: ${profile.smbPercent}")
+                val microBolus = Math.floor(Math.min(insulinReq * profile.smbPercent / 100.0, maxBolus) * roundSMBTo) / roundSMBTo
                 // calculate a long enough zero temp to eventually correct back up to target
                 val smbTarget = target_bg
                 val worstCaseInsulinReq = (smbTarget - (naive_eventualBG + minIOBPredBG) / 2.0) / sens
