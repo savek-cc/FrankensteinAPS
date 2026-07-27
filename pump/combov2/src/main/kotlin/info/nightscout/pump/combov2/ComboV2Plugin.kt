@@ -101,6 +101,7 @@ import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Provider
 import javax.inject.Singleton
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -118,6 +119,13 @@ import info.nightscout.comboctl.main.PumpManager as ComboCtlPumpManager
  * is used for all further attempts.
  */
 internal val PUMP_ERROR_TIMEOUT_INTERVALS_MSECS = longArrayOf(1000L * 60 * 5, 1000L * 60 * 10, 1000L * 60 * 15, 1000L * 60 * 30)
+
+/**
+ * How far the timestamp of a running mode record may sit from the moment this driver asked for it
+ * and still count as the same record. The loop writes the record within the same call, so the two
+ * are milliseconds apart; the margin only covers a slow device.
+ */
+private const val LOOP_SUSPEND_MATCH_TOLERANCE_MSECS = 10L * 1000
 
 @Singleton
 class ComboV2Plugin @Inject constructor(
@@ -194,6 +202,11 @@ class ComboV2Plugin @Inject constructor(
     // Index into PUMP_ERROR_TIMEOUT_INTERVALS_MSECS. Increased with every retry, reset as soon as
     // the pump could be reached again.
     private var pumpErrorTimeoutIndex = 0
+
+    // Timestamp of the loop pause this driver set while the pump was delivering insulin over time,
+    // 0 if there is none. Kept to be able to end that pause - and only that one - when the delivery
+    // is over.
+    private var loopSuspendedForDelayedInsulinAt: Long = 0
 
     // Set to true if a disconnect request came in while the driver
     // was in the Connecting, CheckingPump, or ExecutingCommand
@@ -1942,10 +1955,48 @@ class ComboV2Plugin @Inject constructor(
         // One minute extra because the pump clock and the phone clock can be slightly apart.
         val suspendForMinutes = ((end - now) / 60 / 1000).toInt() + 1
         aapsLogger.debug(LTag.PUMP, "Pump delivers insulin over time for $suspendForMinutes more min -> suspending loop for that long")
-        loop.handleRunningModeChange(
+        val suspended = loop.handleRunningModeChange(
             newRM = RM.Mode.SUSPENDED_BY_USER,
             durationInMinutes = suspendForMinutes,
             action = Action.SUSPEND,
+            source = Sources.Combo,
+            profile = profile
+        )
+        if (suspended)
+            loopSuspendedForDelayedInsulinAt = now
+    }
+
+    /**
+     * Ends the loop pause from [suspendLoopWhileDelayedInsulinRuns] once the pump stopped delivering.
+     *
+     * Without this, cancelling an extended bolus would end the bolus but leave the loop paused until
+     * the originally planned end - which is the opposite of what cancelling is for. Resuming lets the
+     * loop set a temporary basal again right away, on current data.
+     *
+     * Only the driver's own pause is ended. A pause the user set themselves is left alone, which is
+     * why the running mode record is matched by timestamp and not just by mode: ending someone
+     * else's suspend would be worse than leaving this one running until it expires.
+     */
+    private suspend fun resumeLoopAfterDelayedInsulin() {
+        val suspendedAt = loopSuspendedForDelayedInsulinAt
+        if (suspendedAt == 0L)
+            return
+        loopSuspendedForDelayedInsulinAt = 0
+
+        val currentRunningMode = loop.runningModeRecord()
+        if ((currentRunningMode.mode != RM.Mode.SUSPENDED_BY_USER) ||
+            (abs(currentRunningMode.timestamp - suspendedAt) > LOOP_SUSPEND_MATCH_TOLERANCE_MSECS)
+        ) {
+            aapsLogger.debug(LTag.PUMP, "Running mode ${currentRunningMode.mode} is not the pause this driver set; leaving it alone")
+            return
+        }
+
+        val profile = profileFunction.getProfile() ?: return
+
+        aapsLogger.debug(LTag.PUMP, "Pump no longer delivers insulin over time -> resuming loop")
+        loop.handleRunningModeChange(
+            newRM = RM.Mode.RESUME,
+            action = Action.RESUME,
             source = Sources.Combo,
             profile = profile
         )
@@ -2037,6 +2088,8 @@ class ComboV2Plugin @Inject constructor(
                         // stopping the pump.
                         event.totalBolusAmount.cctlBolusToIU()
                     )
+
+                    resumeLoopAfterDelayedInsulin()
                 }
             }
 
@@ -2085,6 +2138,8 @@ class ComboV2Plugin @Inject constructor(
                         serialNumber(),
                         delayedAmount.cctlBolusToIU()
                     )
+
+                    resumeLoopAfterDelayedInsulin()
                 }
             }
 
