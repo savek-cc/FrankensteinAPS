@@ -132,15 +132,43 @@ DB-Upgrade verworfen). Medtronic und Insight teilen einen Multiwave in Bolus + E
 der Combo-Treiber macht es jetzt genauso. Beide Events melden einen Gesamtbetrag **inklusive**
 Sofortanteil — an der Prüfpumpe gemessen, siehe Commit-Message.
 
+### Sofortanteil eines abgebrochenen Multiwave
+
+Der Bolus-Datensatz entsteht aus dem Start-Event, also mit der **programmierten** Sofortmenge. Wird
+der Sofortanteil unterbrochen, steht dort zu viel. An der Prüfpumpe gemessen (5,0 IE gesamt, 4,5 IE
+sofort, Abbruch nach 16 s per `CMD_CANCEL_BOLUS`):
+
+```
+MultiwaveBolusStarted(totalBolusAmount=50, immediateBolusAmount=45, totalDurationMinutes=15)
+MultiwaveBolusEnded  (totalBolusAmount=31, immediateBolusAmount=31, totalDurationMinutes=1)
+```
+
+Das End-Event meldet also die **tatsächliche** Sofortmenge (3,1 statt 4,5 IE). Korrigieren ließe
+sich der Datensatz damit trotzdem nicht ohne Weiteres: Start- und End-Event haben verschiedene
+`bolusId` (hier 1381 und 1384, ohne ableitbaren Zusammenhang), und `syncBolusWithPumpId`
+aktualisiert nur bei **gleicher** Pump-ID (`SyncPumpBolusTransaction`). Man müsste die Start-ID im
+Plugin zwischenspeichern.
+
+Nicht gemacht, weil der Fall nicht erreichbar ist:
+
+- An der Pumpe selbst lässt sich der Sofortanteil **nicht** abbrechen — sie reagiert währenddessen
+  nicht auf Tastendrücke.
+- Ein Pumpen-Stopp über Bluetooth braucht rund 44 s (Verbindung, Prüfungen, RT-Navigation), der
+  Sofortanteil ist bei einem Bolus-Maximum von 5 IE nach spätestens ~40 s durch. Zweimal gemessen:
+  der Stopp kam jeweils zu spät, das End-Event meldete die volle Sofortmenge.
+- Bleibt `CMD_CANCEL_BOLUS` — das sendet AAPS nur über `stopBolusDelivering()` für einen selbst
+  gestarteten Bolus, und AAPS programmiert nie einen Multiwave.
+
+**Nebenbefund:** Die Reservoir-Anzeige (`availableUnitsInReservoir`) taugt nicht zur Gegenrechnung.
+Sie fiel in den Messungen um 5 bzw. 8 IE bei tatsächlich 4,5 bzw. 3,1 IE Abgabe. Maßgeblich sind die
+History-Events, die in sich stimmig sind.
+
 ## Was noch offen ist
 
-- **Loop-Suspend beim Multiwave:** Ein an der Pumpe von Hand abgegebener Multiwave setzt den Loop
-  nicht aus, ein von AAPS gestarteter Extended Bolus schon (Feature C). Die Begründung — verzögert
-  abgegebenes Insulin ist Plan, nicht IOB — gilt für beide gleichermaßen. Bewusst offen gelassen.
-- **Sofortanteil bei früh abgebrochenem Multiwave:** Der Bolus-Datensatz entsteht aus dem
-  Start-Event mit der programmierten Menge. Wird ein Multiwave abgebrochen, während der Sofortanteil
-  noch läuft, steht dort etwas zu viel. Der verzögerte Anteil stammt immer aus dem End-Event und ist
-  exakt.
-- **Laufzeittest der AAPS-Anbindung:** Der Stop/Start-Zyklus und die History-Semantik sind an der
-  Prüfpumpe gemessen, die Anbindung in AAPS selbst nicht — dafür müsste die Prüfpumpe an ein Telefon
-  gekoppelt werden.
+- **Loop-Suspend läuft nach einem Abbruch weiter:** `cancelExtendedBolus()` beendet den Bolus, aber
+  der mit ihm gesetzte `SUSPENDED_BY_USER` läuft bis zum ursprünglich geplanten Ende weiter. Ein
+  automatisches Aufheben wäre nur sicher, wenn das Plugin sich merkt, dass *es* den Suspend gesetzt
+  hat — sonst würde es eine vom Nutzer selbst gesetzte Pause aufheben.
+- **Laufzeittest der AAPS-Anbindung:** Stop/Start-Zyklus, Abbruchverhalten und History-Semantik sind
+  an der Prüfpumpe gemessen, die Anbindung in AAPS selbst nicht — dafür müsste die Prüfpumpe an ein
+  Telefon gekoppelt werden.
