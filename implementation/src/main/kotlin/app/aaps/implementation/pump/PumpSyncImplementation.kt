@@ -450,9 +450,9 @@ class PumpSyncImplementation @Inject constructor(
         return result.inserted.isNotEmpty()
     }
 
-    override suspend fun syncStopExtendedBolusWithPumpId(timestamp: Long, endPumpId: Long, pumpType: PumpType, pumpSerial: String): Boolean {
+    override suspend fun syncStopExtendedBolusWithPumpId(timestamp: Long, endPumpId: Long, pumpType: PumpType, pumpSerial: String, amount: Double?): Boolean {
         if (!confirmActivePump(timestamp, pumpType, pumpSerial)) return false
-        val result = persistenceLayer.syncPumpStopExtendedBolusWithPumpId(timestamp, endPumpId, pumpType, pumpSerial)
+        val result = persistenceLayer.syncPumpStopExtendedBolusWithPumpId(timestamp, endPumpId, pumpType, pumpSerial, amount)
         return result.updated.isNotEmpty()
     }
 
