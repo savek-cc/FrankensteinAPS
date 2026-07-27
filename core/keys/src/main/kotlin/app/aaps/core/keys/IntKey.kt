@@ -340,6 +340,18 @@ enum class IntKey(
         unitType = UnitType.MIN,
         sync = SyncSpec(SyncChannel.Cold, SyncDirection.Bidirectional)
     ),
+    ApsSmbPercent(
+        key = "smbpercent",
+        defaultValue = 50,
+        min = 50,
+        max = 100,
+        titleResId = R.string.pref_title_smb_percent,
+        summaryResId = R.string.smb_percent_summary,
+        defaultedBySM = true,
+        dependency = BooleanKey.ApsUseSmb,
+        unitType = UnitType.PERCENT,
+        sync = SyncSpec(SyncChannel.Cold, SyncDirection.Bidirectional)
+    ),
     ApsCarbsRequestThreshold(
         key = "carbsReqThreshold",
         defaultValue = 1,

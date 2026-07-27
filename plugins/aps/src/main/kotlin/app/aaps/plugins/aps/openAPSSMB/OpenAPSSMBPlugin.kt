@@ -433,6 +433,7 @@ open class OpenAPSSMBPlugin @Inject constructor(
             enableSMB_after_carbs = smbEnabled && preferences.get(BooleanKey.ApsUseSmbAfterCarbs) && advancedFiltering,
             maxSMBBasalMinutes = preferences.get(IntKey.ApsMaxMinutesOfBasalToLimitSmb),
             maxUAMSMBBasalMinutes = preferences.get(IntKey.ApsUamMaxMinutesOfBasalToLimitSmb),
+            smbPercent = preferences.get(IntKey.ApsSmbPercent),
             bolus_increment = pump.pumpDescription.bolusStep,
             carbsReqThreshold = preferences.get(IntKey.ApsCarbsRequestThreshold),
             current_basal = ch.fromPump(activePlugin.activePump.baseBasalRate),
@@ -599,6 +600,7 @@ open class OpenAPSSMBPlugin @Inject constructor(
             IntKey.ApsMaxSmbFrequency,
             IntKey.ApsMaxMinutesOfBasalToLimitSmb,
             IntKey.ApsUamMaxMinutesOfBasalToLimitSmb,
+            IntKey.ApsSmbPercent,
             BooleanKey.ApsUseUam,
             IntKey.ApsCarbsRequestThreshold,
             PreferenceSubScreenDef(
