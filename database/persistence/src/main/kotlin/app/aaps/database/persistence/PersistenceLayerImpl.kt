@@ -1032,9 +1032,9 @@ class PersistenceLayerImpl @Inject constructor(
         }
     }
 
-    override suspend fun syncPumpStopExtendedBolusWithPumpId(timestamp: Long, endPumpId: Long, pumpType: PumpType, pumpSerial: String): PersistenceLayer.TransactionResult<EB> = withContext(Dispatchers.IO) {
+    override suspend fun syncPumpStopExtendedBolusWithPumpId(timestamp: Long, endPumpId: Long, pumpType: PumpType, pumpSerial: String, amount: Double?): PersistenceLayer.TransactionResult<EB> = withContext(Dispatchers.IO) {
         try {
-            val result = repository.runTransactionForResultSuspend(SyncPumpCancelExtendedBolusIfAnyTransaction(timestamp, endPumpId, pumpType.toDb(), pumpSerial))
+            val result = repository.runTransactionForResultSuspend(SyncPumpCancelExtendedBolusIfAnyTransaction(timestamp, endPumpId, pumpType.toDb(), pumpSerial, amount))
             val transactionResult = PersistenceLayer.TransactionResult<EB>()
             result.updated.forEach {
                 aapsLogger.debug(LTag.DATABASE, "Updated ExtendedBolus $it")

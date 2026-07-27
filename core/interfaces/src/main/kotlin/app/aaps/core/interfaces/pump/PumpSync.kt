@@ -534,9 +534,12 @@ interface PumpSync {
      * @param endPumpId     pump id of ending event from history
      * @param pumpType      pump type like PumpType.ACCU_CHEK_COMBO
      * @param pumpSerial    pump serial number
+     * @param amount        insulin the pump reports as actually delivered, null if it does not know.
+     *                      When null, the amount is estimated from the elapsed fraction of the
+     *                      programmed duration, which is wrong for a bolus that was cut short.
      * @return true if running record is found and ended by changing duration
      **/
-    suspend fun syncStopExtendedBolusWithPumpId(timestamp: Long, endPumpId: Long, pumpType: PumpType, pumpSerial: String): Boolean
+    suspend fun syncStopExtendedBolusWithPumpId(timestamp: Long, endPumpId: Long, pumpType: PumpType, pumpSerial: String, amount: Double? = null): Boolean
 
     /*
     *   TOTAL DAILY DOSE

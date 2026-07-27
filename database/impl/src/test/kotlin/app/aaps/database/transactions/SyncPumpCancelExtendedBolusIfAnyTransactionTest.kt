@@ -52,6 +52,30 @@ class SyncPumpCancelExtendedBolusIfAnyTransactionTest {
     }
 
     @Test
+    fun `cancels running extended bolus with the amount reported by the pump`() = runTest {
+        val timestamp = 31_000L
+        val endPumpId = 200L
+        val running = createExtendedBolus(timestamp = 1000L, duration = 60_000L, amount = 6.0, endId = null)
+
+        whenever(extendedBolusDao.findByPumpEndIds(200L, InterfaceIDs.PumpType.DANA_I, "ABC123")).thenReturn(null)
+        whenever(extendedBolusDao.getExtendedBolusActiveAt(31_000L)).thenReturn(running)
+
+        val transaction = SyncPumpCancelExtendedBolusIfAnyTransaction(
+            timestamp, endPumpId, InterfaceIDs.PumpType.DANA_I, "ABC123", 2.5
+        )
+        transaction.database = database
+        val result = transaction.run()
+
+        assertThat(result.updated).hasSize(1)
+        assertThat(running.end).isEqualTo(31_000L)
+        assertThat(running.interfaceIDs.endId).isEqualTo(200L)
+        // The pump knows what it delivered, so its number wins over the 3.0 the elapsed time suggests
+        assertThat(running.amount).isWithin(0.001).of(2.5)
+
+        verify(extendedBolusDao).updateExistingEntry(running)
+    }
+
+    @Test
     fun `does not cancel if already cancelled by end id`() = runTest {
         val timestamp = 31_000L
         val endPumpId = 200L

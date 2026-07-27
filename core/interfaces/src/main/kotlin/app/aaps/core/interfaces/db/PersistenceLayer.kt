@@ -1155,7 +1155,7 @@ interface PersistenceLayer {
      * @param pumpSerial pump serial number
      * @return List of updated records
      */
-    suspend fun syncPumpStopExtendedBolusWithPumpId(timestamp: Long, endPumpId: Long, pumpType: PumpType, pumpSerial: String): TransactionResult<EB>
+    suspend fun syncPumpStopExtendedBolusWithPumpId(timestamp: Long, endPumpId: Long, pumpType: PumpType, pumpSerial: String, amount: Double? = null): TransactionResult<EB>
 
     // TT
     /**
