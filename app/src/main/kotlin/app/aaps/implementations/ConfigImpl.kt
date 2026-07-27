@@ -71,7 +71,10 @@ class ConfigImpl @Inject constructor(
     private val enabledOptionsCache = mutableMapOf<ExternalOptions, Boolean>()
 
     override fun isEngineeringModeOrRelease(): Boolean = if (!APS) true else isEngineeringMode() || !isDev()
-    override fun isEngineeringMode(): Boolean = isEnabled(ExternalOptions.ENGINEERING_MODE)
+    // Always on in this build. The alternative is an "engineering_mode" file in the AAPS extra
+    // directory, which is easy to lose on a phone change or a restore and silently takes the
+    // experimental options with it.
+    override fun isEngineeringMode(): Boolean = true
     override fun isDev(): Boolean = (VERSION.contains("-") || VERSION.matches(Regex(".*[a-zA-Z]+.*"))) && !VERSION.contains("-beta") && !VERSION.contains("-rc")
     override fun isEnabled(option: ExternalOptions): Boolean =
         enabledOptionsCache.getOrPut(option) {
