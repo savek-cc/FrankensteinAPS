@@ -35,12 +35,16 @@ class VersionCheckerPlugin @Inject constructor(
     aapsLogger, rh, preferences
 ), PluginConstraints {
 
+    /**
+     * The expiry date does not constrain dosing in this build.
+     *
+     * Upstream sets max IOB to 0 once the build is past its expiry date, which stops every
+     * correction beyond basal. This build is compiled from source and updated when there is a
+     * reason to, so an expiry date that quietly switches off dosing is a hazard here rather than a
+     * safeguard. The version check itself still runs and still logs what it finds.
+     */
     override suspend fun applyMaxIOBConstraints(maxIob: Constraint<Double>): Constraint<Double> {
         versionCheckerUtils.triggerCheckVersion()
-        val endDate = preferences.get(LongComposedKey.AppExpiration, config.VERSION_NAME)
-        return if (endDate != 0L && dateUtil.now() > endDate)
-            maxIob.set(0.0, rh.gs(R.string.application_expired), this)
-        else
-            maxIob
+        return maxIob
     }
 }
