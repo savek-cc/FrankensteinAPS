@@ -1920,6 +1920,20 @@ class ComboV2Plugin @Inject constructor(
         _baseBasalRateUIFlow.value = activeBasalProfile?.get(currentHour)?.cctlBasalToIU()
     }
 
+    /**
+     * The part of a multiwave bolus that is delivered over time, in pump units.
+     *
+     * Both multiwave events report a total that *includes* the immediate portion. Measured on a
+     * bench pump: a multiwave of 1.0 IU with an immediate portion of 0.3 IU, cut short after about
+     * three minutes, ends with totalBolusAmount = 5 (0.5 IU) and immediateBolusAmount = 3 (0.3 IU),
+     * so 0.2 IU of the delayed portion had gone in.
+     *
+     * Clamped at zero: a bolus that is interrupted during its immediate portion can report a total
+     * below the programmed immediate amount.
+     */
+    private fun delayedMultiwaveAmount(totalBolusAmount: Int, immediateBolusAmount: Int) =
+        (totalBolusAmount - immediateBolusAmount).coerceAtLeast(0)
+
     @OptIn(ExperimentalTime::class)
     private fun handlePumpEvent(event: ComboCtlPump.Event) {
         aapsLogger.debug(LTag.PUMP, "Handling pump event $event")
@@ -2013,6 +2027,48 @@ class ComboV2Plugin @Inject constructor(
                         // programmed amount whenever the bolus was cut short, for example by
                         // stopping the pump.
                         event.totalBolusAmount.cctlBolusToIU()
+                    )
+                }
+            }
+
+            // A multiwave has no counterpart in the AAPS data model. It is split into its two
+            // halves, the same way the Medtronic and Insight drivers do it: the immediate portion
+            // becomes a normal bolus, the delayed portion an extended bolus.
+            //
+            // Only the pump itself can start one - AAPS never programs a multiwave. Without this
+            // branch a bolus given by hand at the pump would not reach the database at all.
+            is ComboCtlPump.Event.MultiwaveBolusStarted -> {
+                val delayedAmount = delayedMultiwaveAmount(event.totalBolusAmount, event.immediateBolusAmount)
+                runBlocking {
+                    pumpSync.syncBolusWithPumpId(
+                        event.timestamp.toEpochMilliseconds(),
+                        PumpInsulin(event.immediateBolusAmount.cctlBolusToIU()),
+                        BS.Type.NORMAL,
+                        event.bolusId,
+                        PumpType.ACCU_CHEK_COMBO,
+                        serialNumber()
+                    )
+                    pumpSync.syncExtendedBolusWithPumpId(
+                        event.timestamp.toEpochMilliseconds(),
+                        PumpRate(delayedAmount.cctlBolusToIU()),
+                        event.totalDurationMinutes.toLong() * 60 * 1000,
+                        false,
+                        event.bolusId,
+                        PumpType.ACCU_CHEK_COMBO,
+                        serialNumber()
+                    )
+                }
+            }
+
+            is ComboCtlPump.Event.MultiwaveBolusEnded   -> {
+                val delayedAmount = delayedMultiwaveAmount(event.totalBolusAmount, event.immediateBolusAmount)
+                runBlocking {
+                    pumpSync.syncStopExtendedBolusWithPumpId(
+                        event.timestamp.toEpochMilliseconds(),
+                        event.bolusId,
+                        PumpType.ACCU_CHEK_COMBO,
+                        serialNumber(),
+                        delayedAmount.cctlBolusToIU()
                     )
                 }
             }
