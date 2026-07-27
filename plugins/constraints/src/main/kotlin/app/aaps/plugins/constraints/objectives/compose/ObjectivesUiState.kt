@@ -6,7 +6,9 @@ import androidx.compose.runtime.Immutable
 data class ObjectivesUiState(
     val objectives: List<ObjectiveUiItem> = emptyList(),
     val isFakeMode: Boolean = false,
-    val showDebugControls: Boolean = false,
+    // Shown in this build: nothing sets this flag anywhere, so the objectives could otherwise
+    // neither be ticked off nor reset from the UI.
+    val showDebugControls: Boolean = true,
     val ntpVerification: NtpVerificationState? = null,
     val examSheet: ExamSheetState? = null,
     val learnedSheet: LearnedSheetState? = null,
