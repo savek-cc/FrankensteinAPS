@@ -856,6 +856,56 @@ class CommandQueueImplementationTest : TestBaseWithProfile() {
         assertThat(commandQueue.size()).isEqualTo(1)
     }
 
+    @Test
+    fun `bolus above the threshold is queued as an extended bolus`() = runTest {
+        // Not a BOLUS command any more, so the progress dialog and the SMB blocking that go with it
+        // do not apply either. The routing looks at the constrained amount, so the constraint has to
+        // let it through - the shared setup caps everything at 0.
+        whenever(constraintChecker.applyBolusConstraints(anyOrNull())).thenReturn(ConstraintObject(2.0, aapsLogger))
+        backgroundScope.launch { commandQueue.bolus(DetailedBolusInfo().also { it.insulin = 2.0 }) }
+        yield()
+        assertThat(commandQueue.size()).isEqualTo(1)
+        assertThat(commandQueue.bolusInQueue()).isFalse()
+    }
+
+    @Test
+    fun `bolus at or below the threshold stays a normal bolus`() = runTest {
+        whenever(constraintChecker.applyBolusConstraints(anyOrNull())).thenReturn(ConstraintObject(1.0, aapsLogger))
+        backgroundScope.launch { commandQueue.bolus(DetailedBolusInfo().also { it.insulin = 1.0 }) }
+        yield()
+        assertThat(commandQueue.size()).isEqualTo(1)
+        assertThat(commandQueue.bolusInQueue()).isTrue()
+    }
+
+    @Test
+    fun `extended bolus duration grows with the amount`() {
+        val queue = commandQueue as CommandQueueImplementation
+        assertThat(queue.extendedBolusDurationFor(DetailedBolusInfo().also { it.insulin = 1.0 })).isNull()
+        assertThat(queue.extendedBolusDurationFor(DetailedBolusInfo().also { it.insulin = 1.1 })).isEqualTo(15)
+        assertThat(queue.extendedBolusDurationFor(DetailedBolusInfo().also { it.insulin = 6.0 })).isEqualTo(15)
+        assertThat(queue.extendedBolusDurationFor(DetailedBolusInfo().also { it.insulin = 6.1 })).isEqualTo(30)
+    }
+
+    @Test
+    fun `SMB and priming are never turned into an extended bolus`() {
+        // An SMB has to be immediate to be a correction at all, and priming has to reach the
+        // cannula now rather than over the next half hour.
+        val queue = commandQueue as CommandQueueImplementation
+        assertThat(queue.extendedBolusDurationFor(DetailedBolusInfo().also { it.insulin = 5.0; it.bolusType = BS.Type.SMB })).isNull()
+        assertThat(queue.extendedBolusDurationFor(DetailedBolusInfo().also { it.insulin = 5.0; it.bolusType = BS.Type.PRIMING })).isNull()
+    }
+
+    @Test
+    fun `a pump without extended bolus support keeps delivering at once`() {
+        testPumpPlugin.pumpDescription.isExtendedBolusCapable = false
+        try {
+            val queue = commandQueue as CommandQueueImplementation
+            assertThat(queue.extendedBolusDurationFor(DetailedBolusInfo().also { it.insulin = 5.0 })).isNull()
+        } finally {
+            testPumpPlugin.pumpDescription.isExtendedBolusCapable = true
+        }
+    }
+
     private suspend fun stubActiveMode(mode: app.aaps.core.data.model.RM.Mode) {
         whenever(persistenceLayer.getRunningModeActiveAt(anyLong())).thenReturn(
             app.aaps.core.data.model.RM(timestamp = 0, mode = mode, duration = 0L)
