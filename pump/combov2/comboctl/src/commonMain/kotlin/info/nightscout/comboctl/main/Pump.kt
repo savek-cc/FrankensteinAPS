@@ -375,6 +375,8 @@ class Pump(
     class SettingBasalProfileCommandDesc : CommandDescription()
     class UpdatingPumpDateTimeCommandDesc(val newPumpLocalDateTime: LocalDateTime) : CommandDescription()
     class UpdatingPumpStatusCommandDesc : CommandDescription()
+    class StoppingPumpCommandDesc : CommandDescription()
+    class StartingPumpCommandDesc : CommandDescription()
     class FetchingTDDHistoryCommandDesc : CommandDescription()
     class SettingTbrCommandDesc(
         val percentage: Int,
@@ -408,6 +410,15 @@ class Pump(
 
     class UnaccountedBolusDetectedException :
         ComboException("Unaccounted bolus(es) detected")
+
+    /**
+     * Exception thrown when the pump did not switch between its running and stopped states.
+     *
+     * @param wasStartAttempt true if the pump was supposed to start, false if it was supposed
+     *   to stop.
+     */
+    class PumpStateDidNotChangeException(wasStartAttempt: Boolean) :
+        ComboException("Pump did not ${if (wasStartAttempt) "start" else "stop"}")
 
     /**
      * Exception thrown when something goes wrong with a bolus delivery.
@@ -1998,6 +2009,129 @@ class Pump(
      * @throws AlertScreenException if alerts occurs during this call, and
      *   they aren't a W6 warning (those are handled by this function).
      */
+    /**
+     * Stops the pump, suspending all insulin delivery.
+     *
+     * This is what the user does at the pump by picking the "stop pump" menu entry and confirming
+     * it. While stopped, the Combo delivers no insulin at all - no basal, no TBR, no bolus - which
+     * is why this also reports an ongoing 0% TBR of type [Tbr.Type.COMBO_STOPPED] to the outside,
+     * exactly like the stopped state that follows a pump error.
+     *
+     * Stopping also terminates whatever is currently being delivered. A running extended or
+     * multiwave bolus cannot be cancelled in any other way; the Combo's CMD_CANCEL_BOLUS only
+     * affects the immediate portion of a bolus. The pump records the amount that was actually
+     * delivered up to that point in its history. If a bolus or a TBR was running, the Combo raises
+     * W8 and/or W6 warnings, which the alert handling around this command dismisses.
+     *
+     * If the pump is already stopped, this function does nothing.
+     *
+     * @throws IllegalStateException if the driver is not in the [State.ReadyForCommands] state.
+     * @throws AlertScreenException if an alert occurs that cannot be handled automatically.
+     * @throws PumpStateDidNotChangeException if the pump did not switch to the stopped state.
+     */
+    suspend fun stopPump() {
+        executeCommand(
+            pumpMode = PumpIO.Mode.REMOTE_TERMINAL,
+            isIdempotent = true,
+            description = StoppingPumpCommandDesc()
+        ) {
+            switchPumpRunningState(shouldRun = false)
+        }
+
+        // executeCommand() restores the state it found on entry, so the new state is set here.
+        setState(State.Suspended)
+    }
+
+    /**
+     * Starts the pump again after it was stopped.
+     *
+     * Counterpart to [stopPump]. The Combo resumes the basal profile that was active before. A TBR
+     * that ran before the pump was stopped is *not* restored - the pump cancels it when stopping.
+     * The 0% TBR that represented the stopped state is reported as ended.
+     *
+     * If the pump is already running, this function does nothing.
+     *
+     * @throws IllegalStateException if the driver is neither in the [State.ReadyForCommands] nor
+     *   in the [State.Suspended] state.
+     * @throws AlertScreenException if an alert occurs that cannot be handled automatically.
+     * @throws PumpStateDidNotChangeException if the pump did not switch to the running state.
+     */
+    suspend fun startPump() {
+        executeCommand(
+            pumpMode = PumpIO.Mode.REMOTE_TERMINAL,
+            isIdempotent = true,
+            allowExecutionWhileSuspended = true,
+            description = StartingPumpCommandDesc()
+        ) {
+            switchPumpRunningState(shouldRun = true)
+        }
+
+        setState(State.ReadyForCommands)
+    }
+
+    // Shared implementation of stopPump() and startPump(). Both work the same way: go to the
+    // menu entry that is present in the current state - "stop pump" while running, "start pump"
+    // while stopped - and confirm it with CHECK.
+    private suspend fun switchPumpRunningState(shouldRun: Boolean) {
+        // Read the state from the pump instead of relying on the cached pumpSuspended value.
+        // This matters because executeCommand() re-runs this block after it dismissed an alert,
+        // and the state change may well have happened already before that alert showed up - the
+        // W8 "bolus cancelled" warning after stopping the pump is exactly such a case. Without
+        // this, the retry would look for a menu entry that does not exist in the new state.
+        updateStatusByReadingMainAndQuickinfoScreens(switchStatesIfNecessary = false)
+
+        if (pumpSuspended == !shouldRun) {
+            logger(LogLevel.DEBUG) {
+                "Pump is already ${if (shouldRun) "running" else "stopped"}; only reconciling the TBR state"
+            }
+        } else {
+            val menuScreenType = if (shouldRun)
+                ParsedScreen.StartPumpMenuScreen::class
+            else
+                ParsedScreen.StopPumpMenuScreen::class
+
+            logger(LogLevel.DEBUG) { "Navigating to screen of type $menuScreenType" }
+            navigateToRTScreen(rtNavigationContext, menuScreenType, pumpSuspended)
+
+            logger(LogLevel.DEBUG) { "Confirming the menu entry to ${if (shouldRun) "start" else "stop"} the pump" }
+            rtNavigationContext.shortPressButton(RTNavigationButton.CHECK)
+
+            // Confirming switches the pump state and returns to the main screen. Wait for that
+            // screen instead of assuming a fixed delay, then read the state back from the pump
+            // rather than trusting that the button press had the intended effect.
+            waitUntilScreenAppears(rtNavigationContext, ParsedScreen.MainScreen::class)
+            updateStatusByReadingMainAndQuickinfoScreens(switchStatesIfNecessary = false)
+
+            if (pumpSuspended == shouldRun)
+                throw PumpStateDidNotChangeException(shouldRun)
+        }
+
+        // Done on every pass, including the one after an alert caused a command retry, since the
+        // recorded TBR has to describe the actual pump state, not the path that got us there.
+        syncTbrStateWithPumpRunningState()
+    }
+
+    // While the Combo is stopped it delivers no insulin at all, which is equivalent to a 0% TBR.
+    // This keeps the recorded TBR in sync with that, in both directions, and is idempotent so it
+    // can be called no matter how often the surrounding command was retried.
+    private fun syncTbrStateWithPumpRunningState() {
+        val currentTbrState = pumpStateStore.getCurrentTbrState(bluetoothDevice.address)
+        val comboStoppedTbrIsRecorded =
+            (currentTbrState as? CurrentTbrState.TbrStarted)?.tbr?.type == Tbr.Type.COMBO_STOPPED
+
+        when {
+            pumpSuspended && !comboStoppedTbrIsRecorded  -> {
+                logger(LogLevel.DEBUG) { "Pump is stopped; recording this as a 0% TBR" }
+                reportPumpSuspendedTbr()
+            }
+
+            !pumpSuspended && comboStoppedTbrIsRecorded  -> {
+                logger(LogLevel.DEBUG) { "Pump runs again; ending the 0% TBR that stood for the stopped state" }
+                reportOngoingTbrAsStopped()
+            }
+        }
+    }
+
     suspend fun updateStatus() = updateStatusImpl(
         allowExecutionWhileSuspended = true,
         allowExecutionWhileChecking = false,
