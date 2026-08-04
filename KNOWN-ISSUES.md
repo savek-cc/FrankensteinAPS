@@ -17,10 +17,16 @@ BluetoothException: Could not establish an RFCOMM client connection to device wi
 Observed 2026-08-04: last successful connection 03:02, then 4346 consecutive failures over 4¼ hours
 with zero successes, on a CUBOT KINGKONG MINI 4 (Android 15) with build `e7de99043a`.
 
-**Cause.** The pump is reachable and responding — it accepts the ACL connection and answers the
-remote name request with `SpiritCombo` — but it no longer advertises a Serial Port Profile record.
-Android's service discovery succeeds and returns nothing usable, so there is no RFCOMM channel to
-connect to. From the Android Bluetooth HCI log:
+**Cause.** The pump's serial service is single-session. While a session is open it withdraws its
+Serial Port Profile record — which is correct behaviour for a service that can only be used once at
+a time — and it re-registers the record when the session ends properly. If the session instead ends
+without the Combo's application layer disconnect reaching the pump, it never re-registers, and the
+pump is stuck that way until someone presses one of its buttons.
+
+The pump is therefore reachable and responding the whole time — it accepts the ACL connection and
+answers the remote name request with `SpiritCombo` — it just has nothing to offer. Android's service
+discovery succeeds and returns nothing usable, so there is no RFCOMM channel to connect to. From the
+Android Bluetooth HCI log:
 
 ```
 OnConnectSuccess: Connection successful classic remote:<addr> handle:51
@@ -57,6 +63,29 @@ the `com.android.bluetooth` process never restarts.
 
 **What fixes it.** Press any button on the pump. It then re-registers the record (`p_sdp_rec` becomes
 non-null, `scn:1`) and the connection is established roughly 300 ms later.
+
+**Reproduced on the bench** (2026-08-04, pump `00:0E:2F:80:9E:4B`, from a Linux box using a
+hand-written SDP client over L2CAP PSM 1, so no cache sits between the probe and the pump):
+
+- Baseline, 12 probes: `records=1 channel=1 name='SerialLink'` every time, 40 ms per query once the
+  ACL link is up.
+- Open the RFCOMM channel and close the socket without any protocol exchange — **one** such event is
+  enough. The record is gone immediately and stays gone: 200 probes over 6 min 42 s, all `records=0`,
+  and still gone 2.5 hours later.
+- In that state SDP answers in 20 ms with zero records and RFCOMM is refused instantly
+  (`ConnectionResetError`), which is exactly the field signature.
+- A button press restores it within seconds.
+- Probing while a session is deliberately held open also reports `records=0`. That is how the record
+  behaves during every normal AAPS session too, so its absence alone is not the fault — the fault is
+  that it does not come back.
+- 60 SDP requests aborted mid-transaction changed nothing. It is specifically the stranded RFCOMM
+  session, not radio trouble as such.
+
+**Why AAPS cannot prevent it.** `PumpIO.disconnect()` always builds a `CTRL_DISCONNECT` packet and
+hands it to `transportLayerIO.stop()`, so the driver already does the right thing. But once the radio
+link is gone there is no way to deliver that packet, and that is precisely when the pump strands its
+session. This is a pump firmware defect; detecting it and telling the user is the only thing the app
+can do.
 
 **Related code.** `AndroidBluetoothInterface` tracks ACL connection state so that
 `AndroidBluetoothDevice.connect()` can throw `BluetoothServiceNotOfferedException` instead of the
