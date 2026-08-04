@@ -225,15 +225,15 @@ at roughly 40 MB/h, which leaves *less* history than the default — `INFO` is e
 decisive `status:...FAILURE scn:0` line is logged at that level. Log levels are read when the
 Bluetooth stack starts, so changes only take effect after it is restarted.
 
-## Bluetooth sockets are dropped without being closed
+## Not a bug: Bluetooth sockets dropped without an explicit close
 
 `AndroidBluetoothDevice.connect()` sets `systemBluetoothSocket = null` before each retry without
-calling `close()` on the previous socket, relying on the garbage collector to release the underlying
-file descriptor — the comment in the code says so explicitly. Every failed attempt therefore leaks a
-socket until a GC run collects it. Present unchanged in upstream `nightscout/AndroidAPS` `dev`.
+calling `close()` on the previous socket, and the comment there says it relies on the garbage
+collector. That reads like a file descriptor leak, and it was written up as one here — wrongly.
 
-This was *not* the cause of the connection failures described above (a freshly started process with
-no leaked sockets behaves identically), but it remains a defect worth reporting upstream.
+`BluetoothSocket.finalize()` calls `close()` (checked in the android-36 sources), so the descriptor
+is released once the object is collected. The close is deferred and its timing is not guaranteed, but
+it does happen. Recorded here only so the same wrong conclusion is not drawn twice.
 
 ## comboctl crashes when a pump state has no Bluetooth bond
 
