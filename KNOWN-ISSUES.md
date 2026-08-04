@@ -81,6 +81,18 @@ hand-written SDP client over L2CAP PSM 1, so no cache sits between the probe and
 - 60 SDP requests aborted mid-transaction changed nothing. It is specifically the stranded RFCOMM
   session, not radio trouble as such.
 
+**Not specific to one pump or Bluetooth chipset.** Confirmed on a second bench pump
+(`00:0E:2F:78:5D:75`) with newer Bluetooth hardware: same sequence, same numbers — RFCOMM opens in
+0.11 s, the record is withdrawn while the session is open, and it stays withdrawn after an abrupt
+close. Both pumps report byte-for-byte identical LMP features (`ff ff 8f fe db ff 5b 87` on page 0,
+`03 00 …` on page 1, i.e. both advertise Secure Simple Pairing host support), the same class of
+device, the same service name and the same RFCOMM channel. From the host side the two are
+indistinguishable, so a newer pump offers no protection against this.
+
+Both pumps also failed to recover on their own; in both cases what looked like self-healing turned
+out to be a button press. `00:0E:2F` resolves to Roche Diagnostics GmbH — it is Roche's own OUI
+allocation, so the address prefix says nothing about which Bluetooth chip is inside.
+
 **Why AAPS cannot prevent it.** `PumpIO.disconnect()` always builds a `CTRL_DISCONNECT` packet and
 hands it to `transportLayerIO.stop()`, so the driver already does the right thing. But once the radio
 link is gone there is no way to deliver that packet, and that is precisely when the pump strands its
