@@ -64,6 +64,7 @@ import info.nightscout.comboctl.base.BasicProgressStage
 import info.nightscout.comboctl.base.BluetoothException
 import info.nightscout.comboctl.base.BluetoothNotAvailableException
 import info.nightscout.comboctl.base.BluetoothNotEnabledException
+import info.nightscout.comboctl.base.BluetoothServiceNotOfferedException
 import info.nightscout.comboctl.base.ComboException
 import info.nightscout.comboctl.base.DisplayFrame
 import info.nightscout.comboctl.base.NullDisplayFrame
@@ -745,6 +746,20 @@ class ComboV2Plugin @Inject constructor(
                     throw e
                 } catch (e: AlertScreenException) {
                     notifyAboutComboAlert(e.alertScreenContent)
+                    forciblyDisconnectDueToError = true
+                } catch (e: BluetoothServiceNotOfferedException) {
+                    // The pump is in range and answering, it just no longer advertises its
+                    // serial port service. Neither retrying nor restarting anything on the
+                    // phone fixes that - only waking the pump does. Say so instead of showing
+                    // the generic connection error, which sends users looking in the wrong place.
+                    uiInteraction.addNotification(
+                        Notification.COMBO_PUMP_ALARM,
+                        text = rh.gs(R.string.combov2_pump_offers_no_service),
+                        level = Notification.URGENT
+                    )
+
+                    aapsLogger.error(LTag.PUMP, "Pump is reachable but offers no serial port service: $e")
+
                     forciblyDisconnectDueToError = true
                 } catch (e: Exception) {
                     uiInteraction.addNotification(

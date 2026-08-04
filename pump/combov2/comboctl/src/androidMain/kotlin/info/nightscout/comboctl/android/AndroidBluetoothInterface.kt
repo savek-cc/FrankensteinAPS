@@ -61,6 +61,15 @@ class AndroidBluetoothInterface(private val androidContext: Context) : Bluetooth
 
     private var unpairedDevicesBroadcastReceiver: BroadcastReceiver? = null
 
+    // Devices that currently have an ACL connection to us. This is tracked to be able to
+    // tell "pump is out of range" apart from "pump answers, but offers no serial port
+    // service" - both fail the RFCOMM connection setup with the same error otherwise.
+    // See BluetoothServiceNotOfferedException and AndroidBluetoothDevice.connect().
+    private val aclConnectedDevices = mutableSetOf<BluetoothAddress>()
+    private val aclConnectedDevicesLock = ReentrantLock()
+
+    private var aclStateBroadcastReceiver: BroadcastReceiver? = null
+
     // Stores SystemBluetoothDevice that were previously seen in
     // onAclConnected(). These instances represent a device that
     // was found during discovery. The first time the device is
@@ -147,12 +156,81 @@ class AndroidBluetoothInterface(private val androidContext: Context) : Bluetooth
             unpairedDevicesBroadcastReceiver,
             IntentFilter(SystemBluetoothDevice.ACTION_BOND_STATE_CHANGED)
         )
+
+        // Note that this deliberately does not reuse the receiver above, and that it never
+        // modifies the intents it gets. discoveryBroadcastReceiver also listens for
+        // ACTION_ACL_CONNECTED during pairing and uses an "address" extra it adds itself to
+        // detect duplicate notifications; writing to the intent here would break that.
+        aclStateBroadcastReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                when (intent.action) {
+                    SystemBluetoothDevice.ACTION_ACL_CONNECTED -> onAclStateChanged(intent, connected = true)
+                    SystemBluetoothDevice.ACTION_ACL_DISCONNECTED -> onAclStateChanged(intent, connected = false)
+                    else -> Unit
+                }
+            }
+        }
+
+        val aclIntentFilter = IntentFilter()
+        aclIntentFilter.addAction(SystemBluetoothDevice.ACTION_ACL_CONNECTED)
+        aclIntentFilter.addAction(SystemBluetoothDevice.ACTION_ACL_DISCONNECTED)
+        androidContext.registerReceiver(aclStateBroadcastReceiver, aclIntentFilter)
     }
 
     fun teardown() {
         if (unpairedDevicesBroadcastReceiver != null) {
             androidContext.unregisterReceiver(unpairedDevicesBroadcastReceiver)
             unpairedDevicesBroadcastReceiver = null
+        }
+
+        if (aclStateBroadcastReceiver != null) {
+            androidContext.unregisterReceiver(aclStateBroadcastReceiver)
+            aclStateBroadcastReceiver = null
+        }
+
+        try {
+            aclConnectedDevicesLock.lock()
+            aclConnectedDevices.clear()
+        } finally {
+            aclConnectedDevicesLock.unlock()
+        }
+    }
+
+    /**
+     * Returns true if the device with the given address currently has an ACL connection to us.
+     *
+     * A device can be ACL connected while an RFCOMM connection setup still fails. For the Combo
+     * this means the pump is in range and responding, but does not offer its serial port service.
+     */
+    fun isAclConnected(deviceAddress: BluetoothAddress): Boolean =
+        try {
+            aclConnectedDevicesLock.lock()
+            deviceAddress in aclConnectedDevices
+        } finally {
+            aclConnectedDevicesLock.unlock()
+        }
+
+    private fun onAclStateChanged(intent: Intent, connected: Boolean) {
+        val androidBtDevice = intent.safeGetParcelableExtra(SystemBluetoothDevice.EXTRA_DEVICE, SystemBluetoothDevice::class.java) ?: return
+
+        val comboctlBtAddress = try {
+            androidBtDevice.address.toBluetoothAddress()
+        } catch (_: IllegalArgumentException) {
+            return
+        }
+
+        try {
+            aclConnectedDevicesLock.lock()
+            if (connected)
+                aclConnectedDevices.add(comboctlBtAddress)
+            else
+                aclConnectedDevices.remove(comboctlBtAddress)
+        } finally {
+            aclConnectedDevicesLock.unlock()
+        }
+
+        logger(LogLevel.DEBUG) {
+            "Device with address $comboctlBtAddress is now ACL ${if (connected) "connected" else "disconnected"}"
         }
     }
 
@@ -286,7 +364,12 @@ class AndroidBluetoothInterface(private val androidContext: Context) : Bluetooth
 
     override fun getDevice(deviceAddress: BluetoothAddress): BluetoothDevice {
         checkIfBluetoothEnabledAndAvailable()
-        return AndroidBluetoothDevice(androidContext, bluetoothAdapter, deviceAddress)
+        return AndroidBluetoothDevice(
+            androidContext,
+            bluetoothAdapter,
+            deviceAddress,
+            isAclConnected = { isAclConnected(deviceAddress) }
+        )
     }
 
     override fun getAdapterFriendlyName() =

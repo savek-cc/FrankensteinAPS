@@ -5,6 +5,7 @@ import info.nightscout.comboctl.base.BluetoothAddress
 import info.nightscout.comboctl.base.BluetoothDevice
 import info.nightscout.comboctl.base.BluetoothException
 import info.nightscout.comboctl.base.BluetoothInterface
+import info.nightscout.comboctl.base.BluetoothServiceNotOfferedException
 import info.nightscout.comboctl.base.ComboIOException
 import info.nightscout.comboctl.base.LogLevel
 import info.nightscout.comboctl.base.Logger
@@ -30,7 +31,10 @@ private val logger = Logger.get("AndroidBluetoothDevice")
 class AndroidBluetoothDevice(
     private val androidContext: Context,
     private val systemBluetoothAdapter: SystemBluetoothAdapter,
-    override val address: BluetoothAddress
+    override val address: BluetoothAddress,
+    // Tells whether this device currently has an ACL connection to us. Used to distinguish
+    // an out-of-range pump from one that answers but offers no serial port service.
+    private val isAclConnected: () -> Boolean = { false }
 ) : BluetoothDevice(Dispatchers.IO) {
 
     private var systemBluetoothSocket: SystemBluetoothSocket? = null
@@ -118,6 +122,20 @@ class AndroidBluetoothDevice(
             }
         } catch (t: Throwable) {
             disconnectImpl() // Clean up any partial connection states that may exist.
+
+            val aclConnected = isAclConnected()
+            logConnectFailureDetails(aclConnected)
+
+            // An established ACL connection means the device is in range and answering; the
+            // RFCOMM setup then failed because service discovery found no serial port record.
+            // Report that separately, because the remedy is a different one - the pump has to
+            // be woken up so that it registers the record again.
+            if (aclConnected)
+                throw BluetoothServiceNotOfferedException(
+                    "Device with address $address is connected but offers no RFCOMM serial port service",
+                    t
+                )
+
             throw BluetoothException("Could not establish an RFCOMM client connection to device with address $address", t)
         }
 
@@ -219,6 +237,26 @@ class AndroidBluetoothDevice(
                 logger(LogLevel.DEBUG) { "Aborted read call because we are disconnecting" }
                 return listOf()
             }
+        }
+    }
+
+    // Records what the Bluetooth stack knows about the device right after a failed connection
+    // setup. Without this, a pump that is out of range and one that is in range but offers no
+    // serial port service produce the exact same log output. Deliberately best-effort: this
+    // runs on an error path and must never mask the original failure.
+    private fun logConnectFailureDetails(aclConnected: Boolean) {
+        val details = try {
+            checkForConnectPermission(androidContext) {
+                val device = systemBluetoothAdapter.getRemoteDevice(androidBtAddressString)
+                val uuids = device.uuids?.joinToString(separator = ", ") { it.uuid.toString() } ?: "<none reported>"
+                "bond state: ${device.bondState}; cached service UUIDs: $uuids"
+            }
+        } catch (t: Throwable) {
+            "could not be queried: $t"
+        }
+
+        logger(LogLevel.INFO) {
+            "Connection setup with device with address $address failed; ACL connected: $aclConnected; $details"
         }
     }
 
