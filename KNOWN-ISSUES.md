@@ -61,8 +61,14 @@ pump that is actually out of range takes 16–40 s per attempt (the Bluetooth pa
 The Bluetooth stack is healthy throughout: adapter `ON`, zero crashes, bond to the pump intact, and
 the `com.android.bluetooth` process never restarts.
 
-**What fixes it.** Press any button on the pump. It then re-registers the record (`p_sdp_rec` becomes
-non-null, `scn:1`) and the connection is established roughly 300 ms later.
+**What fixes it.** Press any button on the pump, wait for its display to go dark again. It then
+re-registers the record (`p_sdp_rec` becomes non-null, `scn:1`) and the connection is established
+roughly 300 ms later.
+
+The button press is not a magic incantation: switching the pump on locally takes precedence over
+Bluetooth operation and resets its Bluetooth application layer, which is what releases the stranded
+session. That is also why the pump is unreachable for as long as its display stays on — a few seconds
+on the newer pumps, up to a minute and a half on a 2009 one.
 
 **Reproduced on the bench** (2026-08-04, pump `00:0E:2F:80:9E:4B`, from a Linux box using a
 hand-written SDP client over L2CAP PSM 1, so no cache sits between the probe and the pump):
@@ -85,17 +91,27 @@ hand-written SDP client over L2CAP PSM 1, so no cache sits between the probe and
 - 60 SDP requests aborted mid-transaction changed nothing. It is specifically the stranded RFCOMM
   session, not radio trouble as such.
 
-**Not specific to one pump or Bluetooth chipset.** Confirmed on a second bench pump
-(`00:0E:2F:78:5D:75`) with newer Bluetooth hardware: same sequence, same numbers — RFCOMM opens in
-0.11 s, the record is withdrawn while the session is open, and it stays withdrawn after an abrupt
-close. Both pumps report byte-for-byte identical LMP features (`ff ff 8f fe db ff 5b 87` on page 0,
-`03 00 …` on page 1, i.e. both advertise Secure Simple Pairing host support), the same class of
-device, the same service name and the same RFCOMM channel. From the host side the two are
-indistinguishable, so a newer pump offers no protection against this.
+**A regression in the newer pump generation.** Measured across three bench pumps, reading each one's
+LMP version straight off the air:
 
-Both pumps also failed to recover on their own; in both cases what looked like self-healing turned
-out to be a button press. `00:0E:2F` resolves to Roche Diagnostics GmbH — it is Roche's own OUI
-allocation, so the address prefix says nothing about which Bluetooth chip is inside.
+| Pump | LMP version | Manufacturer | Subversion | Aborted session |
+|------|-------------|--------------|-----------|-----------------|
+| `00:0E:2F:EA:13:5D` (2009) | 3 — Bluetooth 2.0 + EDR | 0x000a CSR | 4294 | record comes straight back |
+| `00:0E:2F:80:9E:4B` | 8 — Bluetooth 4.2 | 0x000a CSR | 12519 | record stays gone |
+| `00:0E:2F:78:5D:75` | 8 — Bluetooth 4.2 | 0x000a CSR | 12519 | record stays gone |
+
+The 2009 pump behaves identically in every other respect — same class of device, same service name,
+same RFCOMM channel, and it withdraws the record while a session is open just like the others. It
+simply releases a stranded session properly. Twelve rounds of the abuse that kills the newer pumps
+within ten left its record untouched. So this is not inherent to the Combo; it came in with the
+newer Bluetooth firmware, and owners of older pumps are not affected.
+
+Roche stayed with the same silicon vendor across both generations, so neither the address prefix
+(`00:0E:2F` is Roche's own OUI allocation) nor the manufacturer id distinguishes an affected pump —
+only the LMP version does.
+
+The affected pumps never recovered on their own; both times it looked like self-healing it turned out
+to be a button press.
 
 **Why AAPS cannot prevent it.** `PumpIO.disconnect()` always builds a `CTRL_DISCONNECT` packet and
 hands it to `transportLayerIO.stop()`, so the driver already does the right thing. But once the radio
