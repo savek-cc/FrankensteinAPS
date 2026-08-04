@@ -112,6 +112,7 @@ buttons at the same time to cancel pairing)\n
     <string name="combov2_unpair_pump_summary">Unpair AndroidAPS and Android from the currently paired Accu-Chek Combo pump</string>
     <string name="combov2_unknown_tbr_detected">Unknown TBR was detected and stopped; percentage: %1$d%%; remaining duration: %2$s</string>
     <string name="combov2_connection_error">Connection error: %1$s</string>
+    <string name="combov2_pump_offers_no_service">The pump responds but no longer offers a connection. Press any button on the pump to wake it up. Restarting the app or Bluetooth does not help.</string>
     <string name="combov2_short_status_alert">Alert: %s</string>
 
     <string name="combov2_automatic_reservoir_entry">Autodetect and automatically enter insulin reservoir change</string>
