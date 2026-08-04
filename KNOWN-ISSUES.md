@@ -94,17 +94,23 @@ hand-written SDP client over L2CAP PSM 1, so no cache sits between the probe and
 **A regression in the newer pump generation.** Measured across three bench pumps, reading each one's
 LMP version straight off the air:
 
-| Pump | LMP version | Manufacturer | Subversion | Aborted session |
-|------|-------------|--------------|-----------|-----------------|
-| `00:0E:2F:EA:13:5D` (2009) | 3 — Bluetooth 2.0 + EDR | 0x000a CSR | 4294 | record comes straight back |
-| `00:0E:2F:80:9E:4B` | 8 — Bluetooth 4.2 | 0x000a CSR | 12519 | record stays gone |
-| `00:0E:2F:78:5D:75` | 8 — Bluetooth 4.2 | 0x000a CSR | 12519 | record stays gone |
+| Pump | Built | Serial | LMP version | Subversion | Aborted session |
+|------|-------|--------|-------------|-----------|-----------------|
+| `00:0E:2F:EA:13:5D` | 2009 | 10085551 | 3 — Bluetooth 2.0 + EDR | 4294 | record comes straight back |
+| `00:0E:2F:9E:E0:B4` | 2013 | 41001172 | 3 — Bluetooth 2.0 + EDR | 4294 | record comes straight back |
+| `00:0E:2F:78:5D:75` | ? | 41274500 | 8 — Bluetooth 4.2 | 12519 | record stays gone |
+| `00:0E:2F:80:9E:4B` | 2021 | 41382078 | 8 — Bluetooth 4.2 | 12519 | record stays gone |
 
-The 2009 pump behaves identically in every other respect — same class of device, same service name,
-same RFCOMM channel, and it withdraws the record while a session is open just like the others. It
-simply releases a stranded session properly. Twelve rounds of the abuse that kills the newer pumps
-within ten left its record untouched. So this is not inherent to the Combo; it came in with the
-newer Bluetooth firmware, and owners of older pumps are not affected.
+All four report manufacturer `0x000a` (Cambridge Silicon Radio, now Qualcomm). The two older pumps
+behave identically in every other respect — same class of device, same service name, same RFCOMM
+channel, and they withdraw the record while a session is open just like the newer ones. They simply
+release a stranded session properly: twelve rounds of the abuse that kills a newer pump within ten
+left their records untouched. So this is not inherent to the Combo; it came in with the newer
+Bluetooth firmware, and owners of older pumps are not affected.
+
+The changeover therefore sits somewhere between serial 41001172 (2013) and 41274500. Interpolating
+between the two dated pumps puts that at roughly 2018, but Roche need not have numbered units evenly,
+so treat that as an order of magnitude rather than a date.
 
 Roche stayed with the same silicon vendor across both generations, so neither the address prefix
 (`00:0E:2F` is Roche's own OUI allocation) nor the manufacturer id distinguishes an affected pump —
