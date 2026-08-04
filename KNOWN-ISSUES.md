@@ -18,10 +18,26 @@ Observed 2026-08-04: last successful connection 03:02, then 4346 consecutive fai
 with zero successes, on a CUBOT KINGKONG MINI 4 (Android 15) with build `e7de99043a`.
 
 **Cause.** The pump's serial service is single-session. While a session is open it withdraws its
-Serial Port Profile record — which is correct behaviour for a service that can only be used once at
-a time — and it re-registers the record when the session ends properly. If the session instead ends
-without the Combo's application layer disconnect reaching the pump, it never re-registers, and the
-pump is stuck that way until someone presses one of its buttons.
+Serial Port Profile record — correct behaviour for a service that can only be used once at a time —
+and normally re-registers it when the session ends. On newer pumps it fails to re-register after one
+specific kind of ending, and then stays that way until someone operates the pump locally.
+
+The trigger is narrower than it first appears. Measured on the same pump within the same minute:
+
+| What happens to the session | Record afterwards |
+|-----------------------------|-------------------|
+| Ends normally (`CTRL_DISCONNECT` delivered) | back within ~3 s |
+| A live session is killed outright — process `SIGKILL`, i.e. what a crash or a sudden link loss looks like | back within ~5 s |
+| RFCOMM opens and the socket closes **without any Combo protocol being spoken** | **gone, indefinitely** |
+
+So it is not "the farewell packet did not arrive" — a session that genuinely ran and then died
+abruptly is cleaned up fine. What strands the pump is an RFCOMM connection that is accepted and then
+goes away without ever becoming a valid session.
+
+Which real-world event produces that is **not proven**. The most plausible candidate is the edge of
+radio range: RFCOMM still comes up, the Combo handshake on top of it cannot complete because packets
+are lost, and the driver closes the socket again. That matches the field timeline — an out-of-range
+period a few hours before the failure — but it is a hypothesis, not a measurement.
 
 The pump is therefore reachable and responding the whole time — it accepts the ACL connection and
 answers the remote name request with `SpiritCombo` — it just has nothing to offer. Android's service
@@ -70,60 +86,125 @@ Bluetooth operation and resets its Bluetooth application layer, which is what re
 session. That is also why the pump is unreachable for as long as its display stays on — a few seconds
 on the newer pumps, up to a minute and a half on a 2009 one.
 
-**Reproduced on the bench** (2026-08-04, pump `00:0E:2F:80:9E:4B`, from a Linux box using a
-hand-written SDP client over L2CAP PSM 1, so no cache sits between the probe and the pump):
+### Reproducing it
 
-- Baseline, 12 probes: `records=1 channel=1 name='SerialLink'` every time, 40 ms per query once the
-  ACL link is up.
-- Open the RFCOMM channel and close the socket without any protocol exchange — **one** such event is
-  enough. The record is gone immediately and stays gone: 200 probes over 6 min 42 s, all `records=0`,
-  and still gone 2.5 hours later.
-- In that state SDP answers in 20 ms with zero records and RFCOMM is refused instantly
-  (`ConnectionResetError`), which is exactly the field signature.
-- A button press restores it within seconds.
-- Probing while a session is deliberately held open also reports `records=0`. That is how the record
-  behaves during every normal AAPS session too, so its absence alone is not the fault — the fault is
-  that it does not come back.
-- A cleanly ended session does restore it: running a full comboctl session against a properly paired
-  pump and letting it disconnect normally leaves `records=0` for a moment and back to `records=1`
-  within about three seconds. So the whole chain is measured, not inferred — session open, record
-  withdrawn; clean end, record back; aborted end, record gone until a button press.
-- 60 SDP requests aborted mid-transaction changed nothing. It is specifically the stranded RFCOMM
-  session, not radio trouble as such.
+Everything below runs from a Linux box with plain CPython, no root and no PyBluez. The tools live in
+`tools/combo-sdp-probe/`. **Only ever do this to a bench pump** — it leaves the pump unable to accept
+connections until someone presses a button on it.
 
-**A regression in the newer pump generation.** Measured across three bench pumps, reading each one's
-LMP version straight off the air:
+The probe speaks SDP over L2CAP PSM 1 by hand, so nothing caches the answer. That matters: Android's
+`BluetoothDevice.getUuids()` returns a cached list that the targeted query does not refresh, so it
+cannot be used to check this.
 
-| Pump | Built | Serial | LMP version | Subversion | Aborted session |
-|------|-------|--------|-------------|-----------|-----------------|
-| `00:0E:2F:EA:13:5D` | 2009 | 10085551 | 3 — Bluetooth 2.0 + EDR | 4294 | record comes straight back |
-| `00:0E:2F:9E:E0:B4` | 2013 | 41001172 | 3 — Bluetooth 2.0 + EDR | 4294 | record comes straight back |
-| `00:0E:2F:78:5D:75` | ? | 41274500 | 8 — Bluetooth 4.2 | 12519 | record stays gone |
-| `00:0E:2F:80:9E:4B` | 2021 | 41382078 | 8 — Bluetooth 4.2 | 12519 | record stays gone |
+**1. Pair the pump.** The pump is the initiator — it looks for a device offering a Serial Port record
+named exactly `SerialLink`, so `bluetoothctl pair` alone will not do. Either use `pair_combo.py` for a
+Bluetooth-level bond, or comboctl's own pairing for a complete one. Note that Combos want legacy PIN
+pairing; if the adapter offers Secure Simple Pairing the bond looks fine to BlueZ but the pump does
+not consider itself paired:
 
-All four report manufacturer `0x000a` (Cambridge Silicon Radio, now Qualcomm). The two older pumps
-behave identically in every other respect — same class of device, same service name, same RFCOMM
-channel, and they withdraw the record while a session is open just like the newer ones. They simply
-release a stranded session properly: twelve rounds of the abuse that kills a newer pump within ten
-left their records untouched. So this is not inherent to the Combo; it came in with the newer
-Bluetooth firmware, and owners of older pumps are not affected.
+```
+btmgmt power off && btmgmt ssp off && btmgmt power on     # needs CAP_NET_ADMIN
+```
 
-The changeover therefore sits somewhere between serial 41001172 (2013) and 41274500. Interpolating
-between the two dated pumps puts that at roughly 2018, but Roche need not have numbered units evenly,
-so treat that as an order of magnitude rather than a date.
+If the pump already knows this machine, delete that pairing **on the pump** first, otherwise it skips
+us during its search.
 
-Roche stayed with the same silicon vendor across both generations, so neither the address prefix
-(`00:0E:2F` is Roche's own OUI allocation) nor the manufacturer id distinguishes an affected pump —
-only the LMP version does.
+**2. Establish the baseline.**
+
+```
+python3 sdp_probe.py spp 00:0E:2F:...
+→ {'records': 1, 'handles': [65536], 'channel': 1, 'name': 'SerialLink', 'seconds': 0.041}
+```
+
+Once the ACL link is up each query takes about 40 ms. The first one takes a few seconds because the
+link has to be established. A Combo blocks Bluetooth entirely while its display is lit — seconds on
+newer pumps, up to a minute and a half on a 2009 one — so `Host is down` early on just means wait.
+
+**3. Strand it.**
+
+```
+python3 stress.py rfcomm 12 00:0E:2F:...
+```
+
+One round is enough on an affected pump; the extra rounds only make it obvious. Each round opens
+RFCOMM channel 1 and closes the socket immediately. Rounds after the first report `Device or resource
+busy` — the pump is holding the session.
+
+**4. Watch.** Probe for at least 90 seconds. Do not judge from a single probe right after the abort:
+one pump reported `records=1` immediately after the stress run and was found stranded minutes later,
+which briefly produced a wrong result during this investigation.
+
+```
+python3 sdp_probe.py watch 00:0E:2F:... 20
+```
+
+An affected pump answers in ~20 ms with `records=0` and refuses RFCOMM instantly
+(`ConnectionResetError`) — exactly the field signature. Measured persistence: 200 probes over
+6 min 42 s, all zero, and still zero 2.5 hours later.
+
+**5. Recover.** Press a button on the pump and wait for the display to go dark.
+
+### Controls that matter
+
+These were run to make sure the test measures what it claims to:
+
+- **Probing while a session is deliberately held open also gives `records=0`.** That is normal — it
+  happens during every AAPS session too. The absence of the record is not the fault; its failure to
+  come back is.
+- **Killing a live comboctl session with `SIGKILL` does *not* strand the pump** — not even an affected
+  one. This is the control that shows the raw open-and-close is the harsher stimulus, not the weaker
+  one, and it is why an app-layer test cannot be used to clear a pump.
+- **60 SDP requests aborted mid-transaction changed nothing**, so it is not radio trouble as such.
+- **A cleanly ended session restores the record within ~3 s**, measured against a fully paired pump.
+
+Any test that does not strand a known-affected pump proves nothing about an unaffected one. That cuts
+both ways and cost a couple of hours here.
+
+### A regression in the newer pump generation
+
+Seven bench pumps, LMP version read straight off the air with `remote_version.py` (BlueZ caches it
+from the first connection and never re-reads it, so neither `btmon` nor `bluetoothctl` shows it
+later):
+
+| Pump | Built | Serial | Pump SW | LMP version | Subversion | Aborted RFCOMM |
+|------|-------|--------|---------|-------------|-----------|----------------|
+| `00:0E:2F:00:08:D3` | 2009 | 10028450 | 1.06 | 3 — Bluetooth 2.0 + EDR | 4294 | record survives |
+| `00:0E:2F:EA:13:5D` | 2009 | 10085551 | — | 3 — Bluetooth 2.0 + EDR | 4294 | record survives |
+| `00:0E:2F:9E:E0:B4` | 2013 | 41001172 | — | 3 — Bluetooth 2.0 + EDR | 4294 | record survives |
+| `00:0E:2F:D2:44:EF` | 2017 | 41232301 | 1.07 | 3 — Bluetooth 2.0 + EDR | 4294 | record survives |
+| `00:0E:2F:F2:D7:2E` | ~2018 | 41274496 | — | 8 — Bluetooth 4.2 | 12519 | **stranded** |
+| `00:0E:2F:78:5D:75` | ~2018 | 41274500 | — | 8 — Bluetooth 4.2 | 12519 | **stranded** |
+| `00:0E:2F:80:9E:4B` | 2021-08-30 | 41382078 | — | 8 — Bluetooth 4.2 | 12519 | **stranded** |
+
+All seven report manufacturer `0x000a` (Cambridge Silicon Radio, now Qualcomm) — Roche kept the same
+silicon vendor across both generations, so neither the address prefix (`00:0E:2F` is Roche's own OUI
+allocation) nor the manufacturer id distinguishes an affected pump. Only the LMP version does. Nor
+does the pump software version: it went 1.06 → 1.07 while the Bluetooth firmware stayed at 4294.
+
+The older pumps are otherwise identical — same class of device, same service name, same RFCOMM
+channel, and they withdraw the record during a session just like the newer ones. They simply release
+a stranded session. So this is not inherent to the Combo; it came in with the newer Bluetooth
+firmware.
+
+The changeover sits between serial **41232301** (2017, unaffected) and **41274496** (affected) — two
+units about 42 000 apart. Interpolating between the 2017 and 2021 pumps puts that at roughly 2018,
+though Roche need not have numbered units evenly.
+
+**How far this carries.** The old pumps are robust against the only stimulus known to trigger the
+fault. That is a real difference, but it is not the same as "safe in the field": which everyday event
+produces that stimulus is still unproven (see *Cause*). An older pump that nevertheless shows the
+notification would be a valuable data point — it would mean the generation split does not transfer.
 
 The affected pumps never recovered on their own; both times it looked like self-healing it turned out
 to be a button press.
 
 **Why AAPS cannot prevent it.** `PumpIO.disconnect()` always builds a `CTRL_DISCONNECT` packet and
-hands it to `transportLayerIO.stop()`, so the driver already does the right thing. But once the radio
-link is gone there is no way to deliver that packet, and that is precisely when the pump strands its
-session. This is a pump firmware defect; detecting it and telling the user is the only thing the app
-can do.
+hands it to `transportLayerIO.stop()`, so the driver already does the right thing on every path it
+controls. And the bench measurements show it would not help anyway: a session killed outright, with
+no farewell packet at all, is cleaned up by the pump regardless. What the app cannot avoid is opening
+an RFCOMM channel and then failing to complete the handshake over it — which is exactly what happens
+at the edge of radio range, and is the one case the pump does not survive. This is a pump firmware
+defect; detecting it and telling the user is the only thing the app can do.
 
 **Related code.** `AndroidBluetoothInterface` tracks ACL connection state so that
 `AndroidBluetoothDevice.connect()` can throw `BluetoothServiceNotOfferedException` instead of the
@@ -153,3 +234,31 @@ socket until a GC run collects it. Present unchanged in upstream `nightscout/And
 
 This was *not* the cause of the connection failures described above (a freshly started process with
 no leaked sockets behaves identically), but it remains a defect worth reporting upstream.
+
+## comboctl crashes when a pump state has no Bluetooth bond
+
+`PumpManager.setup()` reconciles bonds against stored pump states in both directions: a bond without
+a state gets unpaired, and a state without a bond gets deleted. The second case deletes from the map
+it is iterating over, so it throws:
+
+```
+There is no paired device for pump state with address <addr>; deleting state
+Exception in thread "main" java.util.ConcurrentModificationException
+    at info.nightscout.comboctl.main.PumpManager.setup(PumpManager.kt:160)
+```
+
+Reachable whenever a bond disappears while the pump data is still there — on Android, unpairing the
+pump in the system Bluetooth settings is enough.
+
+Worth knowing alongside it: the first direction bites too. Point the tooling at an empty or unrelated
+state file and it will silently unpair every Combo it finds, because none of them have a state entry.
+That happened twice during this investigation and cost two pumps their bond.
+
+## comboctl aborts the process on an out-of-range discovery duration
+
+`bluez_interface::start_discovery` asserts `discovery_duration <= 300` instead of reporting the
+problem, so passing a larger value kills the process with `SIGABRT`:
+
+```
+Assertion `(discovery_duration >= 1) && (discovery_duration <= 300)' failed.
+```
