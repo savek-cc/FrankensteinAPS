@@ -78,6 +78,10 @@ hand-written SDP client over L2CAP PSM 1, so no cache sits between the probe and
 - Probing while a session is deliberately held open also reports `records=0`. That is how the record
   behaves during every normal AAPS session too, so its absence alone is not the fault — the fault is
   that it does not come back.
+- A cleanly ended session does restore it: running a full comboctl session against a properly paired
+  pump and letting it disconnect normally leaves `records=0` for a moment and back to `records=1`
+  within about three seconds. So the whole chain is measured, not inferred — session open, record
+  withdrawn; clean end, record back; aborted end, record gone until a button press.
 - 60 SDP requests aborted mid-transaction changed nothing. It is specifically the stranded RFCOMM
   session, not radio trouble as such.
 
