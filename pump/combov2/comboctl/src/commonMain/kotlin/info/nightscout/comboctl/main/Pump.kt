@@ -7,7 +7,6 @@ import info.nightscout.comboctl.base.BasicProgressStage
 import info.nightscout.comboctl.base.BluetoothAddress
 import info.nightscout.comboctl.base.BluetoothDevice
 import info.nightscout.comboctl.base.BluetoothException
-import info.nightscout.comboctl.base.BluetoothServiceNotOfferedException
 import info.nightscout.comboctl.base.ComboException
 import info.nightscout.comboctl.base.ComboIOException
 import info.nightscout.comboctl.base.CurrentTbrState
@@ -963,19 +962,12 @@ class Pump(
                     // must be reported ASAP and disallow more connection attempts, at
                     // least attempts without notifying the user.
                     is SettingPumpDatetimeFailedException,
-                    is AlertScreenException                 -> {
+                    is AlertScreenException -> {
                         setState(State.Error(throwable = e, "Connection error"))
                         throw e
                     }
 
-                    // The pump is reachable but offers no serial port service. Retrying cannot
-                    // fix that - only the user can, by operating the pump. Forward the exception
-                    // so the caller can say so, but deliberately without entering the Error
-                    // state: once the pump is woken up it works again, and an Error state would
-                    // keep the driver from reconnecting then.
-                    is BluetoothServiceNotOfferedException -> throw e
-
-                    else                                   -> Unit
+                    else                    -> Unit
                 }
                 if (connectionAttemptNr < actualMaxNumAttempts) {
                     logger(LogLevel.DEBUG) { "Got exception while connecting; will try again; exception was: $e" }
