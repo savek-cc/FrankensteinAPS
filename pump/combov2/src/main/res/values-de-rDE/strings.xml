@@ -113,4 +113,5 @@ Schaltflächen gleichzeitig, um das Paar abzubrechen)\n
     <string name="combov2_cannot_pair_driver_not_initialized_explanation">Paarung kann nicht durchgeführt werden, da der Treiber nicht initialisiert wurde. Dies geschieht in der Regel, weil die notwendigen Bluetooth-Berechtigungen nicht erteilt wurden. Gehe zurück, erteile die Bluetooth-Berechtigungen, dann versuche es erneut.</string>
     <string name="combov2_bluetooth_disabled">Treiber kann nicht gestartet werden - Bluetooth ist deaktiviert</string>
     <string name="combov2_bluetooth_not_supported">Treiber kann nicht ausgeführt werden - dieses Gerät unterstützt kein Bluetooth</string>
+    <string name="combov2_pump_offers_no_service">Pumpe verweigert Verbindung. Bitte entsperren.</string>
 </resources>
