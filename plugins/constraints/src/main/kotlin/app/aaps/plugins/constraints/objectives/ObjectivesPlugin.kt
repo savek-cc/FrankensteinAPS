@@ -1,6 +1,7 @@
 package app.aaps.plugins.constraints.objectives
 
 import app.aaps.core.data.plugin.PluginType
+import app.aaps.core.data.time.T
 import app.aaps.core.interfaces.configuration.Config
 import app.aaps.core.interfaces.constraints.Constraint
 import app.aaps.core.interfaces.constraints.Objectives
@@ -48,6 +49,32 @@ class ObjectivesPlugin @Inject constructor(
     aapsLogger, rh, preferences
 ), PluginConstraints, Objectives {
 
+    override suspend fun onStart() {
+        super.onStart()
+        markEveryObjectiveAccomplished()
+    }
+
+    /**
+     * Marks every objective as started and accomplished unless it already carries a timestamp.
+     *
+     * The objectives gate nothing in this build (see the constraints below), so leaving some of them
+     * open only produced a progress badge that never went away and a setup wizard step that asked to
+     * start objective 1. Writing the timestamps rather than faking [Objective.isAccomplished] keeps
+     * the data model and the display consistent: the list shows a real date, `accomplishedCount`
+     * reaches `size`, and nothing downstream needs a special case.
+     *
+     * The timestamp is a minute in the past because [Objective.isAccomplished] compares strictly
+     * against the current time.
+     */
+    private fun markEveryObjectiveAccomplished() {
+        for (objective in objectives) {
+            if (objective.accomplishedOn != 0L) continue
+            val accomplishedAt = objective.dateUtil.now() - T.mins(1).msecs()
+            objective.startedOn = accomplishedAt
+            objective.accomplishedOn = accomplishedAt
+        }
+    }
+
     fun reset() {
         for (objective in objectives) {
             objective.startedOn = 0
@@ -62,6 +89,8 @@ class ObjectivesPlugin @Inject constructor(
         preferences.put(BooleanNonKey.ObjectivesTempTargetUsed, false)
         preferences.put(BooleanNonKey.ObjectivesLoopUsed, false)
         preferences.put(BooleanNonKey.ObjectivesScaleUsed, false)
+        // Keep the invariant: clearing the progress flags must not leave objectives open again.
+        markEveryObjectiveAccomplished()
     }
 
     fun allPriorAccomplished(position: Int): Boolean {
