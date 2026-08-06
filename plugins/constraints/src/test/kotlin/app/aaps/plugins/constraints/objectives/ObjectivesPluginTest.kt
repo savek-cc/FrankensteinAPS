@@ -10,7 +10,6 @@ import app.aaps.core.interfaces.utils.HardLimits
 import app.aaps.core.keys.interfaces.Preferences
 import app.aaps.core.objects.constraints.ConstraintObject
 import app.aaps.implementation.sharedPreferences.PreferencesImpl
-import app.aaps.plugins.constraints.R
 import app.aaps.plugins.constraints.objectives.objectives.Objective0
 import app.aaps.plugins.constraints.objectives.objectives.Objective1
 import app.aaps.plugins.constraints.objectives.objectives.Objective2
@@ -30,7 +29,6 @@ import dagger.Lazy
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.Mock
-import org.mockito.kotlin.whenever
 
 class ObjectivesPluginTest : TestBaseWithProfile() {
 
@@ -64,44 +62,46 @@ class ObjectivesPluginTest : TestBaseWithProfile() {
         )
         objectivesPlugin = ObjectivesPlugin(aapsLogger, rh, emulatedPreferences, config, objectives)
         objectivesPlugin.onStart()
-        whenever(rh.gs(R.string.objectivenotstarted)).thenReturn("Objective %1\$d not started")
-        whenever(rh.gs(R.string.objectivenotfinished)).thenReturn("Objective %1\$d not finished")
     }
 
-    @Test fun notStartedObjectivesShouldLimitLoopInvocation() {
+    // This build does not gate features behind objectives progress, so every constraint has to pass
+    // its input through untouched even when the objective in question was never started. Upstream
+    // asserts the opposite here; see ObjectivesPlugin for why.
+
+    @Test fun notStartedObjectivesDoNotLimitLoopInvocation() {
         objectivesPlugin.objectives[Objectives.FIRST_OBJECTIVE].startedOn = 0
         val c = objectivesPlugin.isLoopInvocationAllowed(ConstraintObject(true, aapsLogger))
-        assertThat(c.getReasons()).isEqualTo("Objectives: Objective 1 not started")
-        assertThat(c.value()).isFalse()
+        assertThat(c.getReasons()).isEmpty()
+        assertThat(c.value()).isTrue()
         objectivesPlugin.objectives[Objectives.FIRST_OBJECTIVE].startedOn = dateUtil.now()
     }
 
-    @Test fun notStartedObjective5ShouldForceLgs() {
+    @Test fun unfinishedObjective5DoesNotForceLgs() {
         objectivesPlugin.objectives[Objectives.LGS_OBJECTIVE].startedOn = 1
         objectivesPlugin.objectives[Objectives.LGS_OBJECTIVE].accomplishedOn = 0
         val c = objectivesPlugin.isLgsForced(ConstraintObject(false, aapsLogger))
-        assertThat(c.getReasons()).contains("Objective 6 not finished")
+        assertThat(c.getReasons()).isEmpty()
+        assertThat(c.value()).isFalse()
+    }
+
+    @Test fun notStartedObjective6DoesNotLimitClosedLoop() {
+        objectivesPlugin.objectives[Objectives.CLOSED_LOOP_OBJECTIVE].startedOn = 0
+        val c = objectivesPlugin.isClosedLoopAllowed(ConstraintObject(true, aapsLogger))
+        assertThat(c.getReasons()).isEmpty()
         assertThat(c.value()).isTrue()
     }
 
-    @Test fun notStartedObjective6ShouldLimitClosedLoop() {
-        objectivesPlugin.objectives[Objectives.CLOSED_LOOP_OBJECTIVE].startedOn = 0
-        val c = objectivesPlugin.isClosedLoopAllowed(ConstraintObject(true, aapsLogger))
-        assertThat(c.getReasons()).contains("Objective 7 not started")
-        assertThat(c.value()).isFalse()
-    }
-
-    @Test fun notStartedObjective8ShouldLimitAutosensMode() {
+    @Test fun notStartedObjective8DoesNotLimitAutosensMode() {
         objectivesPlugin.objectives[Objectives.AUTOSENS_OBJECTIVE].startedOn = 0
         val c = objectivesPlugin.isAutosensModeEnabled(ConstraintObject(true, aapsLogger))
-        assertThat(c.getReasons()).contains("Objective 8 not started")
-        assertThat(c.value()).isFalse()
+        assertThat(c.getReasons()).isEmpty()
+        assertThat(c.value()).isTrue()
     }
 
-    @Test fun notStartedObjective10ShouldLimitSMBMode() {
+    @Test fun notStartedObjective10DoesNotLimitSMBMode() {
         objectivesPlugin.objectives[Objectives.SMB_OBJECTIVE].startedOn = 0
         val c = objectivesPlugin.isSMBModeEnabled(ConstraintObject(true, aapsLogger))
-        assertThat(c.getReasons()).contains("Objective 9 not started")
-        assertThat(c.value()).isFalse()
+        assertThat(c.getReasons()).isEmpty()
+        assertThat(c.value()).isTrue()
     }
 }
