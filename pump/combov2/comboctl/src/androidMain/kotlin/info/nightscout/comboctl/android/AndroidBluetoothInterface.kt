@@ -100,6 +100,16 @@ class AndroidBluetoothInterface(private val androidContext: Context) : Bluetooth
 
     override var onDeviceUnpaired: (deviceAddress: BluetoothAddress) -> Unit = { }
 
+    /**
+     * Invoked when a device is reachable but does not offer the RFCOMM serial port service.
+     *
+     * This is purely informational - the connection attempt carries on and fails the same way it
+     * always did. It exists so the caller can tell the user that only operating the pump helps,
+     * without changing how connection attempts are timed. Expect this to fire once per failed
+     * attempt, so rate-limit whatever is done with it.
+     */
+    var onServiceNotOffered: (deviceAddress: BluetoothAddress) -> Unit = { }
+
     override var deviceFilterCallback: (deviceAddress: BluetoothAddress) -> Boolean = { true }
 
     /**
@@ -368,7 +378,8 @@ class AndroidBluetoothInterface(private val androidContext: Context) : Bluetooth
             androidContext,
             bluetoothAdapter,
             deviceAddress,
-            isAclConnected = { isAclConnected(deviceAddress) }
+            isAclConnected = { isAclConnected(deviceAddress) },
+            onServiceNotOffered = { onServiceNotOffered(deviceAddress) }
         )
     }
 
