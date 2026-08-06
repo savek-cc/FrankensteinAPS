@@ -124,6 +124,10 @@ import info.nightscout.comboctl.main.PumpManager as ComboCtlPumpManager
 
 internal const val PUMP_ERROR_TIMEOUT_INTERVAL_MSECS = 1000L * 60 * 5
 
+// Roughly one connection cycle, so a stranded pump produces one notification per cycle
+// instead of one per failed attempt.
+internal const val PUMP_OFFERS_NO_SERVICE_NOTIFY_INTERVAL_MSECS = 1000L * 60 * 5
+
 @Singleton
 class ComboV2Plugin @Inject constructor(
     aapsLogger: AAPSLogger,
@@ -190,6 +194,7 @@ class ComboV2Plugin @Inject constructor(
     // pumpErrorTimeoutJob expires. That way, the loop won't run until then,
     // giving the user a chance to handle the error.
     private var pumpErrorObserved = false
+    private var lastPumpOffersNoServiceNotification = 0L
     private var pumpErrorTimeoutJob: Job? = null
 
     // Set to true if a disconnect request came in while the driver
@@ -307,6 +312,7 @@ class ComboV2Plugin @Inject constructor(
 
         aapsLogger.debug(LTag.PUMP, "Creating bluetooth interface")
         val newBluetoothInterface = AndroidBluetoothInterface(context)
+        newBluetoothInterface.onServiceNotOffered = { notifyAboutPumpOfferingNoService() }
         bluetoothInterface = newBluetoothInterface
 
         aapsLogger.info(LTag.PUMP, "Continuing combov2 driver start in coroutine")
@@ -746,20 +752,6 @@ class ComboV2Plugin @Inject constructor(
                     throw e
                 } catch (e: AlertScreenException) {
                     notifyAboutComboAlert(e.alertScreenContent)
-                    forciblyDisconnectDueToError = true
-                } catch (e: BluetoothServiceNotOfferedException) {
-                    // The pump is in range and answering, it just no longer advertises its
-                    // serial port service. Neither retrying nor restarting anything on the
-                    // phone fixes that - only waking the pump does. Say so instead of showing
-                    // the generic connection error, which sends users looking in the wrong place.
-                    uiInteraction.addNotification(
-                        Notification.COMBO_PUMP_ALARM,
-                        text = rh.gs(R.string.combov2_pump_offers_no_service),
-                        level = Notification.URGENT
-                    )
-
-                    aapsLogger.error(LTag.PUMP, "Pump is reachable but offers no serial port service: $e")
-
                     forciblyDisconnectDueToError = true
                 } catch (e: Exception) {
                     uiInteraction.addNotification(
@@ -1893,6 +1885,25 @@ class ComboV2Plugin @Inject constructor(
                 throw e
             }
         }
+    }
+
+    // The pump is reachable but offers no serial port service. Every failed connection attempt
+    // reports this, and a stranded pump produces a few dozen of those per connection cycle, so
+    // the notification is rate limited to roughly one per cycle. Only operating the pump helps,
+    // so repeating it more often would tell the user nothing new.
+    private fun notifyAboutPumpOfferingNoService() {
+        val now = System.currentTimeMillis()
+        if ((now - lastPumpOffersNoServiceNotification) < PUMP_OFFERS_NO_SERVICE_NOTIFY_INTERVAL_MSECS)
+            return
+        lastPumpOffersNoServiceNotification = now
+
+        aapsLogger.warn(LTag.PUMP, "Pump is reachable but offers no serial port service; asking the user to operate it")
+
+        uiInteraction.addNotification(
+            Notification.COMBO_PUMP_ALARM,
+            text = rh.gs(R.string.combov2_pump_offers_no_service),
+            level = Notification.URGENT
+        )
     }
 
     private fun startPumpErrorTimeout() {

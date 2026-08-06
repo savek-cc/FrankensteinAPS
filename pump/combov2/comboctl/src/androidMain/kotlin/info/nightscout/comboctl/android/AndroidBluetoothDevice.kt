@@ -34,7 +34,9 @@ class AndroidBluetoothDevice(
     override val address: BluetoothAddress,
     // Tells whether this device currently has an ACL connection to us. Used to distinguish
     // an out-of-range pump from one that answers but offers no serial port service.
-    private val isAclConnected: () -> Boolean = { false }
+    private val isAclConnected: () -> Boolean = { false },
+    // Reports the latter case. Purely informational; the connection attempt is unaffected.
+    private val onServiceNotOffered: () -> Unit = { }
 ) : BluetoothDevice(Dispatchers.IO) {
 
     private var systemBluetoothSocket: SystemBluetoothSocket? = null
@@ -130,11 +132,21 @@ class AndroidBluetoothDevice(
             // RFCOMM setup then failed because service discovery found no serial port record.
             // Report that separately, because the remedy is a different one - the pump has to
             // be woken up so that it registers the record again.
-            if (aclConnected)
+            //
+            // The report goes out through a callback rather than by throwing something the
+            // caller handles differently. Pump.connect() retries on every ComboException and
+            // only stops when the command queue times out, so an exception that aborts the
+            // retry loop early would leave the queue free to start the next attempt right
+            // away - turning one connection cycle every few minutes into one every few
+            // seconds. Keep the exception type for the log message and let the retry loop
+            // behave exactly as it always did.
+            if (aclConnected) {
+                onServiceNotOffered()
                 throw BluetoothServiceNotOfferedException(
                     "Device with address $address is connected but offers no RFCOMM serial port service",
                     t
                 )
+            }
 
             throw BluetoothException("Could not establish an RFCOMM client connection to device with address $address", t)
         }
