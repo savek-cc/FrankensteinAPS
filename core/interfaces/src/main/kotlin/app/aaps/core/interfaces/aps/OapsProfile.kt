@@ -37,7 +37,9 @@ data class OapsProfile(
     var enableSMB_after_carbs: Boolean,
     var maxSMBBasalMinutes: Int,
     var maxUAMSMBBasalMinutes: Int,
-    var smbPercent: Int,
+    // Share of insulinReq that may go out as an SMB. 50 is what upstream does, so a caller that
+    // does not care - an upstream test, for example - keeps upstream behaviour.
+    var smbPercent: Int = 50,
     var bolus_increment: Double,
     var carbsReqThreshold: Int,
     var current_basal: Double,
