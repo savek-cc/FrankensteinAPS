@@ -1,5 +1,9 @@
 # Project Preferences
 
+This checkout is a fork. Read @docs/fork-patches/FORK-GUIDE.md for what the two branches are, how to
+sync them with upstream and how to build here. Everything below is the upstream file and applies as
+written.
+
 ## CRITICAL: Bash Command Rules (applies to ALL agents too)
 
 - **NEVER use `cd && command` or `cd; command` in Bash calls** — triggers security approval prompts
